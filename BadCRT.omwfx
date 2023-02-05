@@ -1,0 +1,49 @@
+uniform_float uScanlines {
+    default = 240;
+    min = 16;
+    max = 1080;
+    step = 1;
+    display_name = "Scanlines";
+    description = "Number of scanlines.";
+}
+uniform_float uBleed {
+    default = 0.1;
+    min = -1.0;
+    max = 1.0;
+    step = 0.01;
+    display_name = "Chromatic Bleed";
+    description = "How much the red channel gets stretched.";
+}
+uniform_float uStrength {
+    default = 0.25;
+    min = 0.0;
+    max = 1.0;
+    step = 0.01;
+    display_name = "Strength";
+    description = "Strength of the effect.";
+}
+
+fragment crt() {
+    omw_In vec2 omw_TexCoord;
+
+    #define PI 3.1415926538
+
+    void main()
+    {
+        vec3 a = omw_GetLastShader(omw_TexCoord).rgb;
+        vec3 b = omw_GetLastShader((omw_TexCoord-vec2(0.5,0.0)) * vec2(1+uBleed*0.025, 1.0) + vec2(0.5,0.0)).rgb;
+        vec3 color = vec3(b.x, a.y, a.z);
+        float scanline_power = sin(omw_TexCoord.y*PI*uScanlines*2.0)/2.0+0.5;
+        vec3 new_color = color * scanline_power;
+        omw_FragColor.rgb = mix(color, new_color, uStrength);
+        omw_FragColor.a = 1.0;
+    }
+}
+
+technique {
+    passes = crt;
+    description = "This is not a CRT shader.";
+    author = "Wareya";
+    version = "0.1";
+}
+

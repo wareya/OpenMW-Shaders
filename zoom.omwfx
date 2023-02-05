@@ -1,0 +1,41 @@
+
+uniform_float uZoom {
+    default = 1.0;
+    min = 1.0;
+    max = 16.0;
+    step = 0.1;
+    description = "Zoom amount.";
+    display_name = "Zoom";
+}
+
+render_target RT_NoMipmap {
+    internal_format = rgb16f;
+    source_type = float;
+    source_format = rgb;
+    mipmaps = false;
+    min_filter = nearest;
+    mag_filter = nearest;
+}
+
+fragment nomipmap(target=RT_NoMipmap) {
+    omw_In vec2 omw_TexCoord;
+    void main()
+    {
+        omw_FragColor = omw_GetLastShader(omw_TexCoord);
+    }
+}
+
+fragment final(rt1=RT_NoMipmap) {
+    omw_In vec2 omw_TexCoord;
+    void main()
+    {
+        omw_FragColor = omw_Texture2D(RT_NoMipmap, (omw_TexCoord-vec2(0.5))/uZoom+vec2(0.5));
+    }
+}
+
+technique {
+    passes = nomipmap, final;
+    description = "A nearest-neighbor zoom shader for debugging.";
+    author = "Wareya";
+    version = "1.0";
+}

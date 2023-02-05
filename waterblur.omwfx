@@ -1,0 +1,117 @@
+uniform_bool uModeA {
+    default = false;
+    description = "";
+    display_name = "Smudge";
+}
+uniform_bool uModeB {
+    default = false;
+    description = "";
+    display_name = "Bypass";
+}
+uniform_bool uModeC {
+    default = false;
+    description = "";
+    display_name = "Decap";
+}
+
+fragment main
+{
+    omw_In vec2 omw_TexCoord;
+    
+    #define PI 3.1415926535
+    
+    bool coord_is_water(vec2 coord, bool cam_above)
+    {
+        vec3 world_pos = omw_GetWorldPosFromUV(coord);
+        bool frag_above = world_pos.z >= omw.waterHeight;
+        return frag_above != cam_above;
+    }
+    
+    void main()
+    {
+        vec2 res = omw.rcpResolution.xy;
+        
+        bool cam_above = omw.eyePos.z >= omw.waterHeight;
+        
+        if (coord_is_water(omw_TexCoord, cam_above) && !uModeB)
+        {
+            if (uModeA)
+            {
+                vec3 color = vec3(0.0, 0.0, 0.0);
+                vec3 color_nocenter = vec3(0.0, 0.0, 0.0);
+                float normalize = 0.0;
+                for(float y = -1.0; y <= 1.0; y += 1.0)
+                {
+                    for(float x = -1.0; x <= 1.0; x += 1.0)
+                    {
+                        vec2 coord = omw_TexCoord + res*vec2(x, y);
+                        if(coord_is_water(coord, cam_above))
+                        {
+                            vec3 c = omw_GetLastShader(coord).rgb;
+                            color += c;
+                            if(x != 0.0 || y != 0.0)
+                                color_nocenter += c;
+                            normalize += 1.0;
+                        }
+                    }
+                }
+                if(dot(abs(color - color_nocenter), vec3(1.0/3.0)) > 0.4 && normalize > 1.0)
+                    omw_FragColor.rgb = color_nocenter * (1.0/(normalize-1.0));// * 0.5 + omw_GetLastShader(omw_TexCoord).rgb * 0.5;
+                else
+                    omw_FragColor.rgb = omw_GetLastShader(omw_TexCoord).rgb;
+            }
+            else
+            {
+                vec3 center = omw_GetLastShader(omw_TexCoord + res*vec2( 0.0,  0.0)).rgb;
+                
+                vec3 left2  = omw_GetLastShader(omw_TexCoord + res*vec2(-2.0,  0.0)).rgb;
+                vec3 left   = omw_GetLastShader(omw_TexCoord + res*vec2(-1.0,  0.0)).rgb;
+                vec3 right  = omw_GetLastShader(omw_TexCoord + res*vec2( 1.0,  0.0)).rgb;
+                vec3 right2 = omw_GetLastShader(omw_TexCoord + res*vec2( 2.0,  0.0)).rgb;
+                
+                //vec3 top    = omw_GetLastShader(omw_TexCoord + res*vec2( 0.0, -1.0)).rgb;
+                //vec3 bottom = omw_GetLastShader(omw_TexCoord + res*vec2( 0.0,  1.0)).rgb;
+                
+                float h0 = dot(left2-left  , vec3(1.0/3.0));
+                float h1 = dot(left-center , vec3(1.0/3.0));
+                float h2 = dot(right-center, vec3(1.0/3.0));
+                float h3 = dot(right2-right, vec3(1.0/3.0));
+                
+                //float v1 = dot(top-center, vec3(1.0/3.0));
+                //float v2 = dot(bottom-center, vec3(1.0/3.0));
+                
+                bool test_a = h1+h2 < -0.25 && sign(h1) == sign(h2);
+                
+                omw_FragColor.rgb = omw_GetLastShader(omw_TexCoord).rgb;
+                
+                if (uModeC)
+                {
+                    if (test_a)
+                        omw_FragColor.rgb = left*0.5 + right*0.5;
+                }
+                else
+                {
+                    if (test_a)
+                        omw_FragColor.rgb = (center + center + left + right)*(1.0/4.0);
+                    else if(h0-h1 < -0.25 && sign(h0) == sign(-h1))
+                        omw_FragColor.rgb = (center + center + left)*(1.0/3.0);
+                    else if(h3-h2 < -0.25 && sign(h3) == sign(-h2))
+                        omw_FragColor.rgb = (center + center + right)*(1.0/3.0);
+                    //else if (v1+v2 < -0.25 && sign(v1) == sign(v2))
+                    //    omw_FragColor.rgb = top*0.5 + bottom*0.5;
+                }
+            }
+        }
+        else
+            omw_FragColor.rgb = omw_GetLastShader(omw_TexCoord).rgb;
+    }
+}
+
+technique {
+    passes = main;
+    description = "Blurs the water.";
+    author = "asdf";
+    version = "0.1";
+    pass_normals = true;
+    glsl_version = 130;
+}

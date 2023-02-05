@@ -1,0 +1,25 @@
+
+uniform_float uZoom {
+    default = 1.0;
+    min = 1.0;
+    max = 16.0;
+    step = 0.1;
+    description = "Zoom amount.";
+    display_name = "Zoom";
+}
+
+
+fragment final() {
+    omw_In vec2 omw_TexCoord;
+    void main()
+    {
+        omw_FragColor = omw_GetLastShader((omw_TexCoord-vec2(0.5))/uZoom+vec2(0.5));
+    }
+}
+
+technique {
+    passes = final;
+    description = "A zoom shader for reasons.";
+    author = "Wareya";
+    version = "1.0";
+}

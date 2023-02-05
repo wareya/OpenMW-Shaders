@@ -1,0 +1,135 @@
+
+uniform_float uBrightness {
+    default = 0.5;
+    min = 0.0;
+    max = 1.0;
+    step = 0.01;
+    description = "Brightens or darkens the image, with clipping.";
+    display_name = "Brightness";
+}
+
+uniform_float uContrast {
+    default = 0.5;
+    min = 0.0;
+    max = 1.0;
+    step = 0.01;
+    description = "Controls how far away from a mid tone pixels are.";
+    display_name = "Contrast";
+}
+
+uniform_float uGamma {
+    default = 1.0;
+    min = 0.01;
+    max = 4.0;
+    step = 0.01;
+    description = "A gamma adjustment. Applies in addition to other gamma adjustments, not instead of them.";
+    display_name = "Gamma";
+}
+
+uniform_float uSaturation {
+    default = 1.0;
+    min = 0.0;
+    max = 5.0;
+    step = 0.1;
+    description = "Makes the colors of the image more or less saturated.";
+    display_name = "Saturation";
+}
+
+uniform_float uColorTemp {
+    default = 0.5;
+    min = 0.0;
+    max = 1.0;
+    step = 0.01;
+    description = "A cheap, hacky color temperature adjustment.";
+    display_name = "Orange-Blue Balance";
+}
+
+
+uniform_float uColorTint {
+    default = 0.5;
+    min = 0.0;
+    max = 1.0;
+    step = 0.01;
+    description = "A cheap, hacky tint adjustment.";
+    display_name = "Green-Pink Balance";
+}
+
+fragment adjustments {
+    omw_In vec2 omw_TexCoord;
+
+    float overlay_scalar(float a, float b)
+    {
+        if (a < 0.5)
+            return 2.0*a*b;
+        a = 1.0-a;
+        b = 1.0-b;
+        return a, 1.0 - 2.0*a*b;
+    }
+    vec3 overlay(vec3 a, vec3 b, float amount)
+    {
+        b = mix(vec3(0.5), b, amount);
+        a.r = overlay_scalar(a.r, b.r);
+        a.g = overlay_scalar(a.g, b.g);
+        a.b = overlay_scalar(a.b, b.b);
+        return a;
+    }
+
+    vec3 apply_color_adjustments(vec3 in_color)
+    {
+        // cut saturation before going into color temp stuff (helps keep bright colors from disappearing)
+        float satscale = 0.25;
+        vec3 gray = vec3((in_color.r + in_color.g + in_color.b)/3.0);
+        in_color = mix(gray, in_color, satscale);
+
+        // apply color temperature
+        if (uColorTemp < 0.5)
+            in_color = overlay(in_color, vec3(0.75, 0.15, 0.0), (1.0 - (uColorTemp*2.0)) * satscale);
+        else
+            in_color = overlay(in_color, vec3(0.0, 0.5, 1.5), (uColorTemp*2.0 - 1.0) * satscale*0.75);
+        
+        // apply tint
+        if (uColorTint < 0.5)
+            in_color = overlay(in_color, vec3(0.0, 0.5, 0.0), (1.0 - (uColorTint*2.0)) * satscale*0.75);
+        else
+            in_color = overlay(in_color, vec3(1.0, 0.4, 1.4), (uColorTint*2.0 - 1.0) * satscale*0.75);
+        
+        // boost saturation going out of color temp stuff
+        gray = vec3((in_color.r + in_color.g + in_color.b)/3.0);
+        in_color = mix(gray, in_color, 1.0/satscale);
+
+        return in_color;
+    }
+
+    void main()
+    {
+        vec3 in_color = omw_GetLastShader(omw_TexCoord).rgb;
+        vec3 gray = vec3((in_color.r + in_color.g + in_color.b)/3.0);
+
+        // apply saturation
+        in_color = mix(gray, in_color, uSaturation);
+
+        // apply contrast
+        float mid = (in_color.r + in_color.g + in_color.b)/3.0;
+        //in_color = mix(vec3(in_color - (mid - 0.5)), in_color, uContrast*2.0); // old method
+        in_color = mix(vec3(0.5), in_color, uContrast*2.0);
+
+        // apply brightness
+        in_color += vec3(uBrightness-0.5)*2.0;
+        
+        // apply color adjustments
+        in_color = apply_color_adjustments(in_color);
+        
+        // gamma
+        in_color = pow(in_color, vec3(uGamma));
+        
+        omw_FragColor = vec4(in_color, 1.0);
+        //omw_FragColor.rgb = clamp(omw_FragColor.rgb, vec3(0.0), vec3(1.0));
+    }
+}
+
+technique {
+    passes = adjustments;
+    description = "Basic color adjustments to demonstrate how post-processing shaders look in code.";
+    author = "Wareya";
+    version = "1.0";
+}

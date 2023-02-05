@@ -1,0 +1,503 @@
+uniform_float uRange {
+    default = 5;
+    min = 1;
+    max = 16.0;
+    step = 1;
+    description = "How many pixels the algorithm follows to try to detect an edge.";
+    display_name = "Range";
+}
+uniform_float uThreshold {
+    default = 20.0;
+    min = 0.0;
+    max = 100.0;
+    step = 1;
+    description = "Depth difference threshold between two pixels to treat that pixel pair as an edge. Low values cause more edges to be anti-aliased, but interfere with the filtering of sloped surfaces. 0.0 to disable depth-based AA.";
+    display_name = "Depth Threshold";
+}
+uniform_float uNormalDotOffset {
+    default = 0.0;
+    min = 0.0;
+    max = 1.02;
+    step = 0.01;
+    description = "Factor to use when comparing surface angles to see if they're similar. Higher values make more surfaces be treated as different. Values above 1.0 are likely to cause serious problems. 0.0 to disable normals-based AA.";
+    display_name = "Normal Comparison Offset";
+}
+uniform_float uLumaLikenessThreshold {
+    default = 0.15;
+    min = 0.0;
+    max = 1.0;
+    step = 0.01;
+    description = "Threshold to use when comparing color values. Low value cause the image to become indiscriminately blurry, hurting performance and filter quality. 1.0 to disable colors-based AA.";
+    display_name = "Color Likeness Threshold";
+}
+uniform_bool uDepthNormalHack {
+    default = true;
+    description = "Modify depth threshold based on surface normal. Makes faraway rocks and hills less distorted.";
+    display_name = "Use Depth Normal Hack";
+}
+uniform_bool uDoDiagonals {
+    default = true;
+    description = "Whether to attempt to process diagonals or not. If disabled, treats diagonals like horizontal/vertical edges. They will still be softened, but only for one or two pixels.";
+    display_name = "Process Diagonals";
+}
+uniform_bool uSkipAll {
+    default = false;
+    description = "Skip all processing. For debugging.";
+    display_name = "Skip All Processing";
+}
+uniform_float uMSAACompatibilityHack {
+    default = 0.0;
+    min = 0.0;
+    max = 1.0;
+    step = 0.01;
+    description = "Turn off the anti-aliasing filter in areas of the image where it thinks that other AA might be active. This worsens the quality of the AA, so you should not enable it unless you're really using other AA before this AA. 0.7 is a good value if using MSAA. 0.3 is a good value if not using MSAA but still want to suppress the AA for some reason. 0.0 to disable (recommended if not using MSAA).";
+    display_name = "MSAA Compatibility Hack";
+}
+uniform_float uGamma {
+    default = 2.2;
+    min = 0.1;
+    max = 4.0;
+    step = 0.05;
+    description = "Gamma compression to use when blending colors. 2.2 is (approximately) physically correct and avoids dark fringes when blending very different highly saturated colors. 1.0 gives what people usually expect from using image editors.";
+    display_name = "Gamma";
+}
+
+shared {
+    vec4 powv(vec4 a, float x)
+    {
+        return pow(a, vec4(x));
+    }
+}
+
+fragment AA() {
+    // Copyright 2023 Wareya
+    // 
+    // Licensed under the Apache License, Version 2.0 (the "License");
+    // you may not use this file except in compliance with the License.
+    // You may obtain a copy of the License at
+    // 
+    //     http://www.apache.org/licenses/LICENSE-2.0
+    // 
+    // Unless required by applicable law or agreed to in writing, software
+    // distributed under the License is distributed on an "AS IS" BASIS,
+    // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    // See the License for the specific language governing permissions and
+    // limitations under the License.
+
+    #define NORMAL_LIKENESS_THRESHOLD 0.05
+    #define DEPTH_DISABLED_VALUE 0.0
+    #define NORMALS_DISABLED_VALUE 0.0
+    #define COLORS_DISABLED_VALUE 1.0
+    omw_In vec2 omw_TexCoord;
+    
+    vec4 getColor(vec2 texcoord)
+    {
+        return omw_GetLastShader(texcoord);
+    }
+    
+    float getInfoDepth(vec2 texcoord)
+    {
+        float depth = omw_GetLinearDepth(texcoord);
+        return depth;
+    }
+    float compare_depth(float depth_a, float depth_b, float view_dot)
+    {
+        float sqrt_a = sqrt(depth_a);
+        float sqrt_b = sqrt(depth_b);
+        float depth_diff = abs((sqrt_a - sqrt_b)*32.0);
+        if(uDepthNormalHack)
+            depth_diff *= mix(1.5, 0.01, clamp(view_dot*sqrt_a, 0.0, 1.0));
+        if (depth_a != omw.far && depth_b == omw.far)
+            depth_diff = 1000000.0;
+        return depth_diff;
+    }
+    float depth_compare(vec2 texcoord, float depth_b, float view_dot)
+    {
+        return compare_depth(getInfoDepth(texcoord), depth_b, view_dot);
+    }
+    bool is_similar_depth(float depth_diff)
+    {
+        return depth_diff <= uThreshold;
+    }
+    float is_similar_depth_f(float depth_diff)
+    {
+        return is_similar_depth(depth_diff) ? 0.0 : 1.0;
+    }
+    
+    
+    vec3 getInfoNormal(vec2 texcoord)
+    {
+        vec3 normal = omw_GetNormals(texcoord).rgb;
+        return normal;
+    }
+    float compare_normal(vec3 normal_a, vec3 normal_b)
+    {
+        float dp = dot(normal_a, normal_b); // 1.0 to -1.0 (1.0 being more similar)
+        float normal_diff = 1.0 - dp; // now 0.0 to 2.0 (0.0 being more similar)
+        normal_diff += uNormalDotOffset*2.0;
+        normal_diff = max(0.0, normal_diff-2.0);
+        
+        float normal_length = length(normal_a);
+        // bogus normal, probably a rendering bug, or the sky. treat as same as neighbor
+        if(normal_length > 1.1 || normal_length < 0.9)
+            normal_diff = 0.0;
+        
+        return normal_diff;
+    }
+    float normal_compare(vec2 texcoord, vec3 normal_b)
+    {
+        return compare_normal(getInfoNormal(texcoord), normal_b);
+    }
+    bool is_similar_normal(float normal_diff)
+    {
+        return normal_diff < NORMAL_LIKENESS_THRESHOLD;
+    }
+    float is_similar_normal_f(float normal_diff)
+    {
+        return is_similar_normal(normal_diff) ? 0.0 : 1.0;
+    }
+    
+    
+    
+    vec3 getInfoColor(vec2 texcoord)
+    {
+        return getColor(texcoord).rgb;
+    }
+    float compare_color(vec3 color_a, vec3 color_b)
+    {
+        vec3 c = color_a - color_b;
+        float luma_diff = dot(c, c)*0.3;
+        return luma_diff;
+    }
+    float color_compare(vec2 texcoord, vec3 color_b)
+    {
+        return compare_color(getInfoColor(texcoord), color_b);
+    }
+    bool is_similar_color(float color_diff)
+    {
+        return color_diff < uLumaLikenessThreshold*uLumaLikenessThreshold;
+    }
+    float is_similar_color_f(float color_diff)
+    {
+        return is_similar_color(color_diff) ? 0.0 : 1.0;
+    }
+
+    void main()
+    {
+        vec2 texcoord = omw_TexCoord;
+        vec2 res = omw.rcpResolution.xy;
+        
+        vec4 true_base_color = getColor(texcoord);
+        
+        if (uSkipAll)
+        {
+            omw_FragColor = true_base_color;
+            return;
+        }
+        
+        mat2 to_px = mat2(
+            res.x, 0.0,
+            0.0, res.y
+        );
+        
+        float center = 0.0;
+        vec3 center_normal = getInfoNormal(texcoord);
+        vec3 center_color = vec3(0.0);
+        
+        float view_dot = abs(dot(omw.eyeVec.xyz, center_normal));
+        
+        float top    = 0.0;
+        float bottom = 0.0;
+        float left   = 0.0;
+        float right  = 0.0;
+        
+        int aa_mode = 0; // 0 - none, 1 - depth, 2 - normal, 3 - color
+        if (aa_mode == 0 && uThreshold != DEPTH_DISABLED_VALUE)
+        {
+            center = getInfoDepth(texcoord);
+            top    = depth_compare(texcoord + vec2( 0.0, -1.0)*to_px, center, view_dot);
+            bottom = depth_compare(texcoord + vec2( 0.0,  1.0)*to_px, center, view_dot);
+            left   = depth_compare(texcoord + vec2(-1.0,  0.0)*to_px, center, view_dot);
+            right  = depth_compare(texcoord + vec2( 1.0,  0.0)*to_px, center, view_dot);
+            
+            if (!is_similar_depth(max(max(top, bottom), max(left, right))))
+                aa_mode = 1;
+        }
+        if(aa_mode == 0 && uNormalDotOffset != NORMALS_DISABLED_VALUE && center < omw.far*0.95) // (only fall back to normals AA if not sky)
+        {
+            top    = normal_compare(texcoord + vec2( 0.0, -1.0)*to_px, center_normal);
+            bottom = normal_compare(texcoord + vec2( 0.0,  1.0)*to_px, center_normal);
+            left   = normal_compare(texcoord + vec2(-1.0,  0.0)*to_px, center_normal);
+            right  = normal_compare(texcoord + vec2( 1.0,  0.0)*to_px, center_normal);
+            
+            if (!is_similar_normal(max(max(top, bottom), max(left, right))))
+                aa_mode = 2;
+        }
+        if(aa_mode == 0 && uLumaLikenessThreshold != COLORS_DISABLED_VALUE)
+        {
+            center_color = getInfoColor(texcoord);
+            top    = color_compare(texcoord + vec2( 0.0, -1.0)*to_px, center_color);
+            bottom = color_compare(texcoord + vec2( 0.0,  1.0)*to_px, center_color);
+            left   = color_compare(texcoord + vec2(-1.0,  0.0)*to_px, center_color);
+            right  = color_compare(texcoord + vec2( 1.0,  0.0)*to_px, center_color);
+            
+            if (!is_similar_color(max(max(top, bottom), max(left, right))))
+                aa_mode = 3;
+        }
+        
+        // skip if no edges
+        if (aa_mode == 0)
+        {
+            omw_FragColor = true_base_color;
+        }
+        else
+        {
+            // edge-following AA
+            
+            float tl = 0.0;
+            float tr = 0.0;
+            float bl = 0.0;
+            float br = 0.0;
+            
+            float t_scalar = 0.0;
+            float b_scalar = 0.0;
+            float l_scalar = 0.0;
+            float r_scalar = 0.0;
+            
+            // check eight corners
+            if (aa_mode == 1)
+            {
+                tl = is_similar_depth_f(depth_compare(texcoord + vec2(-1.0, -1.0)*to_px, center, view_dot));
+                tr = is_similar_depth_f(depth_compare(texcoord + vec2( 1.0, -1.0)*to_px, center, view_dot));
+                bl = is_similar_depth_f(depth_compare(texcoord + vec2(-1.0,  1.0)*to_px, center, view_dot));
+                br = is_similar_depth_f(depth_compare(texcoord + vec2( 1.0,  1.0)*to_px, center, view_dot));
+                
+                t_scalar = is_similar_depth_f(top   );
+                b_scalar = is_similar_depth_f(bottom);
+                l_scalar = is_similar_depth_f(left  );
+                r_scalar = is_similar_depth_f(right );
+            }
+            else if (aa_mode == 2)
+            {
+                tl = is_similar_normal_f(normal_compare(texcoord + vec2(-1.0, -1.0)*to_px, center_normal));
+                tr = is_similar_normal_f(normal_compare(texcoord + vec2( 1.0, -1.0)*to_px, center_normal));
+                bl = is_similar_normal_f(normal_compare(texcoord + vec2(-1.0,  1.0)*to_px, center_normal));
+                br = is_similar_normal_f(normal_compare(texcoord + vec2( 1.0,  1.0)*to_px, center_normal));
+                
+                t_scalar = is_similar_normal_f(top   );
+                b_scalar = is_similar_normal_f(bottom);
+                l_scalar = is_similar_normal_f(left  );
+                r_scalar = is_similar_normal_f(right );
+            }
+            else if (aa_mode == 3)
+            {
+                tl = is_similar_color_f(color_compare(texcoord + vec2(-1.0, -1.0)*to_px, center_color));
+                tr = is_similar_color_f(color_compare(texcoord + vec2( 1.0, -1.0)*to_px, center_color));
+                bl = is_similar_color_f(color_compare(texcoord + vec2(-1.0,  1.0)*to_px, center_color));
+                br = is_similar_color_f(color_compare(texcoord + vec2( 1.0,  1.0)*to_px, center_color));
+                
+                t_scalar = is_similar_color_f(top   );
+                b_scalar = is_similar_color_f(bottom);
+                l_scalar = is_similar_color_f(left  );
+                r_scalar = is_similar_color_f(right );
+            }
+            
+            vec4 raw_base_color = true_base_color;
+            vec4 base_color = raw_base_color;
+            
+            // compare eight corners
+            float t_compare  = tl*0.25 + tr*0.25 + t_scalar*0.5;
+            float b_compare  = bl*0.25 + br*0.25 + b_scalar*0.5;
+            float l_compare  = tl*0.25 + bl*0.25 + l_scalar*0.5;
+            float r_compare  = tr*0.25 + br*0.25 + r_scalar*0.5;
+            
+            float tl_compare = uDoDiagonals ? 0.95*(t_scalar*0.5 + l_scalar*0.5) : 0.0;
+            float tr_compare = uDoDiagonals ? 0.95*(t_scalar*0.5 + r_scalar*0.5) : 0.0;
+            float bl_compare = uDoDiagonals ? 0.95*(b_scalar*0.5 + l_scalar*0.5) : 0.0;
+            float br_compare = uDoDiagonals ? 0.95*(b_scalar*0.5 + r_scalar*0.5) : 0.0;
+            
+            // figure out what type of edge we're on and configure the edge search accordingly
+            
+            bool skip = false;
+
+            mat2 to_px_2 = mat2(0.0, 0.0, 0.0, 0.0);
+            float max_compare = max(max(max(t_compare, b_compare), max(l_compare, r_compare)), max(max(tl_compare, bl_compare), max(tr_compare, br_compare)));
+            
+            // pick walking transform based on what direction the edge is going in
+            if(t_compare == max_compare)
+                to_px_2 = mat2(res.x, 0.0, 0.0, res.y);
+            else if(b_compare == max_compare)
+                to_px_2 = mat2(res.x, 0.0, 0.0, -res.y);
+            else if(l_compare == max_compare)
+                to_px_2 = mat2(0.0, res.x, res.y, 0.0);
+            else if(r_compare == max_compare)
+                to_px_2 = mat2(0.0, -res.x, res.y, 0.0);
+            else if(tl_compare == max_compare)
+                to_px_2 = mat2(-res.x,  res.x, res.y, 0.0);
+            else if(br_compare == max_compare)
+                to_px_2 = mat2(-res.x, -res.x, res.y, 0.0);
+            else if(tr_compare == max_compare)
+                to_px_2 = mat2( res.x, -res.x, res.y, 0.0);
+            else if(bl_compare == max_compare)
+                to_px_2 = mat2( res.x,  res.x, res.y, 0.0);
+            else
+                skip = true;
+            
+            if(!skip)
+            {
+                // follow edge and find the ratio of like to unlike pixels to estimate
+                float left_like = 0.0;
+                float right_like = 0.0;
+                bool left_open = true;
+                bool right_open = true;
+                
+                int range = int(abs(uRange));
+                
+                for(int xsign = -1; xsign <= 1; xsign += 2)
+                {
+                    for(int x = 1; x <= range; x += 1)
+                    {
+                        vec2 coord_a = texcoord + vec2(float(xsign*x),  0.0)*to_px_2;
+                        vec2 coord_b = texcoord + vec2(float(xsign*x), -1.0)*to_px_2;
+                        bool info_a = false;
+                        bool info_b = false;
+                        // pick likeness comparison info depending on aa mode
+                        if (aa_mode == 1)
+                        {
+                            info_a = is_similar_depth(depth_compare(coord_a, center, view_dot));
+                            info_b = is_similar_depth(depth_compare(coord_b, center, view_dot));
+                        }
+                        else if (aa_mode == 2)
+                        {
+                            info_a = is_similar_normal(normal_compare(coord_a, center_normal));
+                            info_b = is_similar_normal(normal_compare(coord_b, center_normal));
+                        }
+                        else if (aa_mode == 3)
+                        {
+                            info_a = is_similar_color(color_compare(coord_a, center_color));
+                            info_b = is_similar_color(color_compare(coord_b, center_color));
+                        }
+                        // break on open end
+                        if(info_b)
+                        {
+                            break;
+                        }
+                        // break on closed end (left)
+                        else if (!info_a && xsign == -1)
+                        {
+                            left_open = false;
+                            break;
+                        }
+                        // break on closed end (right)
+                        else if (!info_a && xsign == 1)
+                        {
+                            right_open = false;
+                            break;
+                        }
+                        // otherwise extend
+                        else if (xsign == -1)
+                        {
+                            left_like += 1.0;
+                        }
+                        else if (xsign == 1)
+                        {
+                            right_like += 1.0;
+                        }
+                    }
+                }
+                
+                // treat concave bits like sloped bits
+                if(!left_open && !right_open)
+                {
+                    float a = min(left_like, right_like);
+                    float b = uRange; // makes the final blend approach 0.5 as range increases, not 0
+                    left_like = a;
+                    right_like = b;
+                    left_open = false;
+                    right_open = true;
+                }
+                // calculate the blending ratio based on the number of open and closed neighboring pixels
+                float blend_amount = 0.0;
+                float pixel_range = left_like + right_like + 1;
+                if (left_open != right_open)
+                {
+                    if (left_open)
+                        blend_amount = (left_like+0.5)/(pixel_range);
+                    else
+                        blend_amount = (right_like+0.5)/(pixel_range);
+                    blend_amount -= 0.5;
+                }
+                blend_amount = clamp(blend_amount, 0.0, 1.0);
+                
+                // blend neighboring edge pixel into center pixel based on ratio of low to high pixels
+                // this is the step that approximately reconstructs the original shape
+                vec4 next_color = getColor(texcoord - vec2(0.0, 1.0)*to_px_2);
+                vec4 color_a = powv(base_color, uGamma);
+                vec4 color_b = powv(next_color, uGamma);
+                
+                vec4 blend_color = mix(color_a, color_b, blend_amount);
+                omw_FragColor = powv(blend_color, 1.0/uGamma);
+                
+                
+                if(uMSAACompatibilityHack != 0.0)
+                {
+                    // create an "estimate" of our blend using a neighboring pixel
+                    // then compare it to the actual output
+                    
+                    // luma of blended output
+                    float luma_z = dot(omw_FragColor.rgb, vec3(1.0/3.0));
+                    // luma of non-blend side of base color
+                    vec4 back_color = getColor(texcoord + vec2(0.0, 1.0)*to_px_2);
+                    vec4 color_n = powv(back_color, uGamma);
+                    float luma_a = dot(back_color.rgb, vec3(1.0/3.0));
+                    // luma of base color
+                    float luma_b = dot(base_color.rgb, vec3(1.0/3.0));
+                    // luma of blend side of base color
+                    float luma_c = dot(next_color.rgb, vec3(1.0/3.0));
+                    
+                    // estimate of expected luma
+                    float luma_q = dot(powv(mix(powv(back_color, 2.2), powv(next_color, 2.2), blend_amount), 1.0/2.2).rgb, vec3(1.0/3.0));
+                    //float luma_q = dot(mix(back_color, next_color, blend_amount).rgb, vec3(1.0/3.0));
+                    
+                    // don't need to incorporate q or z because q is always between luma a and luma b and z is always between luma b and luma c
+                    float lite = max(luma_q, max(luma_b, luma_z));
+                    float dark = min(luma_q, min(luma_b, luma_z));
+                    if(false)//lite-dark > 0.0)
+                    {
+                        luma_z = (luma_z-dark)/(lite-dark);
+                        luma_b = (luma_b-dark)/(lite-dark);
+                        luma_q = (luma_q-dark)/(lite-dark);
+                        
+                        // compare estimate to filtered center pixel
+                        float input_to_pred  = abs(luma_q - luma_b);
+                        float input_to_blend = abs(luma_z - luma_b);
+                        
+                        //float check = input_to_pred+uMSAACompatibilityHack - input_to_blend - 0.5;
+                        //float check = input_to_blend + uMSAACompatibilityHack - input_to_pred - 1.0;
+                        float check = abs(input_to_pred - input_to_blend) - 0.01*(1.0-uMSAACompatibilityHack*0.999);
+                        check = clamp(check*20.0, 0.0, 1.0);
+                        if (check > 0.0)
+                            omw_FragColor = mix(omw_FragColor, base_color, check);
+                        
+                        
+                        // alternatively, if the original output is closer to the estimate of the luma range than luma_z, we can assume that there was some AA already
+                        //if (abs(luma_b - luma_q) < abs(luma_z - luma_q))
+                        //    omw_FragColor = base_color;
+                    }
+                }
+            }
+            else
+            {
+                omw_FragColor = base_color;
+            }
+        }
+    }
+}
+
+technique {
+    passes = AA;
+    description = "A very accurate post-processing anti-aliasing shader that follows edges and tries to reconstruct the underlying shape.";
+    author = "Wareya";
+    version = "0.97";
+    pass_normals = true;
+}
