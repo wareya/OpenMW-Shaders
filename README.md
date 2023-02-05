@@ -2,7 +2,7 @@ This repository is not associated with OpenMW.
 
 # Wareya's OpenMW Post-Processing Shaders
 
-Follower AA: A very accurate AA shader that looks almost as good as MSAA on large objects. Does not blur the screen. Works by following edges and predicting how much aliasing there is. Can read from depth, normal map, or color when walking edges. Has an option to disable itself in places where it thinks MSAA is rendering; you can use it too smooth out jaggies on other post processing effects even with MSAA enabled. That option is subject to this OpenMW bug: https://gitlab.com/OpenMW/openmw/-/issues/7203
+Follower AA: A very accurate AA shader that looks almost as good as MSAA on large objects. Should be very close to the bottom of your shader order. Does not blur the screen. Works by following edges and predicting how much aliasing there is. Can read from depth, normal map, or color when walking edges. Has an option to disable itself in places where it thinks MSAA is rendering; you can use it too smooth out jaggies on other post processing effects even with MSAA enabled. That option is subject to this OpenMW bug: https://gitlab.com/OpenMW/openmw/-/issues/7203
 
 water: A post-processing water shader with screen-space reflections. Currently VERY experimental, and requires editing the built-in water shader. Subject to this OpenMW bug: https://gitlab.com/OpenMW/openmw/-/issues/7202
 
