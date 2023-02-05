@@ -28,6 +28,8 @@ Then, in the ingame video options for water, set the settings like this:
 
 (The ripple density can be set to anything you want, but "Simple" ripples won't render.)
 
+Then, enable post-processing, open the post-processing settings, and add the water shader below ssao (if you have it) but above everything else. The water shader is not 100% compatible with cloud and volumetric fog shaders; you'll need to move them around a bit and decide which order looks better.
+
 # License
 
     Copyright 2022-2023 wareya
