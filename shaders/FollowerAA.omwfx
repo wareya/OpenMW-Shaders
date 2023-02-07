@@ -49,7 +49,7 @@ uniform_float uMSAACompatibilityHack {
     default = 0.0;
     min = 0.0;
     max = 1.0;
-    step = 0.01;
+    step = 0.02;
     description = "Turn off the anti-aliasing filter in areas of the image where it thinks that other AA might be active. This worsens the quality of the AA, so you should not enable it unless you're really using other AA before this AA. 0.7 is a good value if using MSAA. 0.3 is a good value if not using MSAA but still want to suppress the AA for some reason. 0.0 to disable (recommended if not using MSAA).";
     display_name = "MSAA Compatibility Hack";
 }
@@ -462,7 +462,7 @@ fragment AA() {
                     // don't need to incorporate q or z because q is always between luma a and luma b and z is always between luma b and luma c
                     float lite = max(luma_q, max(luma_b, luma_z));
                     float dark = min(luma_q, min(luma_b, luma_z));
-                    if(false)//lite-dark > 0.0)
+                    if(lite-dark > 0.0)
                     {
                         luma_z = (luma_z-dark)/(lite-dark);
                         luma_b = (luma_b-dark)/(lite-dark);
@@ -498,6 +498,6 @@ technique {
     passes = AA;
     description = "A very accurate post-processing anti-aliasing shader that follows edges and tries to reconstruct the underlying shape.";
     author = "Wareya";
-    version = "0.97";
+    version = "0.971";
     pass_normals = true;
 }
