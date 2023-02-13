@@ -4,7 +4,7 @@ This repository is not associated with OpenMW.
 
 Follower AA: A very accurate AA shader that looks almost as good as MSAA on large objects. Should be very close to the bottom of your shader order. Does not blur the screen. Works by following edges and predicting how much aliasing there is. Can read from depth, normal map, or color when walking edges. Has an option to disable itself in places where it thinks MSAA is rendering; you can use it too smooth out jaggies on other post processing effects even with MSAA enabled. That option is subject to this OpenMW bug: https://gitlab.com/OpenMW/openmw/-/issues/7203
 
-water: A post-processing water shader with screen-space reflections. Currently VERY experimental, and requires editing the built-in water shader. Subject to this OpenMW bug: https://gitlab.com/OpenMW/openmw/-/issues/7202 **THIS SHADER IS NOT COMPATIBLE WITH OUTDATED CORE SHADER MODS. DO NOT ASK ANYONE FOR HELP IF YOU TRY TO USE IT WITH OUTDATED CORE SHADER MODS.**
+water: A post-processing water shader with screen-space reflections. Currently VERY experimental, and requires editing the built-in water shader. Subject to this OpenMW bug: https://gitlab.com/OpenMW/openmw/-/issues/7202 **THIS WATER SHADER IS NOT COMPATIBLE WITH OUTDATED CORE SHADER MODS. DO NOT ASK ANYONE FOR HELP IF YOU TRY TO USE IT WITH OUTDATED CORE SHADER MODS.**
 
 waterblur: A blur-based effect designed to hide specular fireflies on water.
 
@@ -17,6 +17,8 @@ zoom, zoom_smooth: Zoom in the center of the screen. Mainly for debugging, but i
 # Using the water shader
 
 **ＷＡＲＮＩＮＧ:** The water shader is currently experimental. OpenMW doesn't expose enough for water shaders to work 100% right.
+
+**THIS WATER SHADER IS NOT COMPATIBLE WITH OUTDATED CORE SHADER MODS. DO NOT ASK ANYONE FOR HELP IF YOU TRY TO USE IT WITH OUTDATED CORE SHADER MODS.**
 
 To use the water shader, open `water_fragment.glsl` and, below this line:
 
