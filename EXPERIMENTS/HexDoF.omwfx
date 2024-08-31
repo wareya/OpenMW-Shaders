@@ -1,0 +1,305 @@
+uniform_float uRadius {
+    default = 0.1;
+    min = 0.01;
+    max = 0.2;
+    step = 0.01;
+    display_name = "Radius";
+    description = "Size of the effect.";
+}
+uniform_float uAperture {
+    default = 0.2;
+    min = 0.025;
+    max = 1.0;
+    step = 0.025;
+    display_name = "Aperture";
+    description = "Size of the aperture. Smaller apertures cause the in-focus area to be larger.";
+}
+uniform_float uStrength {
+    default = 1.0;
+    min = 0.0;
+    max = 1.0;
+    step = 0.01;
+    display_name = "Strength";
+    description = "Strength of the effect.";
+}
+uniform_float uGamma {
+    default = 2.2;
+    min = 0.2;
+    max = 4.0;
+    step = 0.05;
+    display_name = "Gamma";
+    description = "Gamma compression exponent. Controls whether bright areas bleed into dark areas or vice versa.";
+}
+
+render_target RT_NoMipmap {
+    width_ratio = 1.0;
+    height_ratio = 1.0;
+    internal_format = rgb16f;
+    source_type = float;
+    source_format = rgb;
+    mipmaps = false;
+    wrap_s = clamp_to_edge;
+    wrap_t = clamp_to_edge;
+}
+
+render_target RT_Vert {
+    width_ratio = 1.0;
+    height_ratio = 1.0;
+    internal_format = rgba16f;
+    source_type = float;
+    source_format = rgba;
+    mipmaps = false;
+    wrap_s = clamp_to_edge;
+    wrap_t = clamp_to_edge;
+}
+
+render_target RT_Left {
+    width_ratio = 1.0;
+    height_ratio = 1.0;
+    internal_format = rgba16f;
+    source_type = float;
+    source_format = rgba;
+    mipmaps = false;
+    wrap_s = clamp_to_edge;
+    wrap_t = clamp_to_edge;
+}
+
+render_target RT_Right {
+    width_ratio = 1.0;
+    height_ratio = 1.0;
+    internal_format = rgba16f;
+    source_type = float;
+    source_format = rgba;
+    mipmaps = false;
+    wrap_s = clamp_to_edge;
+    wrap_t = clamp_to_edge;
+}
+
+render_target RT_Top_A {
+    width_ratio = 1.0;
+    height_ratio = 1.0;
+    internal_format = rgba16f;
+    source_type = float;
+    source_format = rgba;
+    mipmaps = false;
+    wrap_s = clamp_to_edge;
+    wrap_t = clamp_to_edge;
+}
+
+render_target RT_Top_B {
+    width_ratio = 1.0;
+    height_ratio = 1.0;
+    internal_format = rgba16f;
+    source_type = float;
+    source_format = rgba;
+    mipmaps = false;
+    wrap_s = clamp_to_edge;
+    wrap_t = clamp_to_edge;
+}
+
+render_target RT_Top {
+    width_ratio = 1.0;
+    height_ratio = 1.0;
+    internal_format = rgba16f;
+    source_type = float;
+    source_format = rgba;
+    mipmaps = false;
+    wrap_s = clamp_to_edge;
+    wrap_t = clamp_to_edge;
+}
+
+shared {
+    float get_depth(vec2 coord)
+    {
+        float depth = omw_GetLinearDepth(coord);
+        return (depth);
+    }
+    float prop_depth(vec2 coord)
+    {
+        float c_depth = get_depth(vec2(0.5, 0.5));
+        float s = mix(1000.0/c_depth, 2.0, 0.9);
+        float ref_depth = get_depth(coord);
+        float ref_r_f = abs((ref_depth - c_depth)/(ref_depth + c_depth))*uAperture*s;
+        if(c_depth > ref_depth)
+            ref_r_f *= 1.0;
+        return ref_r_f;
+    }
+    vec4 linear_blur(vec2 coord, sampler2D tex, float xf, float yf)
+    {
+        float c_depth = get_depth(vec2(0.5, 0.5));
+        float s = mix(1000.0/c_depth, 2.0, 0.9);
+        float ref_depth = get_depth(coord);
+        float ref_r_f = abs((ref_depth - c_depth)/(ref_depth + c_depth))*uAperture*s;
+        if(c_depth > ref_depth)
+            ref_r_f *= 1.0;
+        
+        vec2 res = textureSize(tex, 0);
+        
+        float size = uRadius * res.y * 0.03;// * r_f;
+        float n = 0.0;
+        vec4 new_color = vec4(0.0);
+        
+        float scaling = 2.0;
+        
+        int is = int(floor(size + 1.0));
+        for (int x = 0; x <= is; x += 1)
+        {
+            vec2 new_coord = coord + vec2(float(x)/res.x*xf*scaling, float(x)/res.y*yf*scaling);
+            //float depth = get_depth(new_coord);
+            float depth = get_depth(mix(coord, new_coord, uAperture*s));
+            //float depth = get_depth(mix(coord, new_coord, 1.0 / uRadius));
+            
+            float r_f = abs((depth - c_depth)/(depth + c_depth))*uAperture*s;
+            new_coord = mix(coord, new_coord, max(r_f, ref_r_f));
+            //new_coord = mix(coord, new_coord, ref_r_f);
+            //new_coord = mix(coord, new_coord, r_f);
+            
+            if (r_f > ref_r_f && depth > c_depth)
+                new_coord = mix(new_coord, coord, 1.0 - ref_r_f / r_f);
+            if (r_f < ref_r_f)
+                new_coord = mix(new_coord, coord, 1.0 - r_f / ref_r_f);
+            
+            new_color += omw_Texture2D(tex, new_coord);
+        }
+        new_color /= new_color.a;
+        
+        return new_color;
+    }
+}
+
+fragment nomipmap(target=RT_NoMipmap) {
+    omw_In vec2 omw_TexCoord;
+
+    void main()
+    {
+        omw_FragColor = pow(omw_GetLastShader(omw_TexCoord), vec4(vec3(uGamma), 1.0));
+    }
+}
+
+fragment vert(rt1=RT_NoMipmap, target=RT_Vert) {
+    omw_In vec2 omw_TexCoord;
+
+    void main()
+    {
+        omw_FragColor = linear_blur(omw_TexCoord, RT_NoMipmap, 0.0, 1.0);
+    }
+}
+fragment left(rt1=RT_Vert, target=RT_Left) {
+    omw_In vec2 omw_TexCoord;
+
+    void main()
+    {
+        float xf = -0.86602;
+        float yf = -0.5;
+        omw_FragColor = linear_blur(omw_TexCoord, RT_Vert, xf, yf);
+    }
+}
+fragment right(rt1=RT_Vert, target=RT_Right) {
+    omw_In vec2 omw_TexCoord;
+    
+    void main()
+    {
+        float xf = 0.86602;
+        float yf = -0.5;
+        omw_FragColor = linear_blur(omw_TexCoord, RT_Vert, xf, yf);
+    }
+}
+fragment top_a(rt1=RT_NoMipmap, target=RT_Top_A) {
+    omw_In vec2 omw_TexCoord;
+    
+    void main()
+    {
+        float xf = -0.86602;
+        float yf = -0.5;
+        omw_FragColor = linear_blur(omw_TexCoord, RT_NoMipmap, xf, yf);
+    }
+}
+fragment top_b(rt1=RT_Top_A, target=RT_Top_B) {
+    omw_In vec2 omw_TexCoord;
+    
+    void main()
+    {
+        float xf = 0.86602;
+        float yf = -0.5;
+        omw_FragColor = linear_blur(omw_TexCoord, RT_Top_A, xf, yf);
+    }
+}
+
+fragment final(rt1=RT_Left, rt2=RT_Right, rt3=RT_Top_B) {
+    omw_In vec2 omw_TexCoord;
+    
+    void main()
+    {
+        vec2 coord = omw_TexCoord;
+        
+        vec3 base_color = omw_GetLastShader(omw_TexCoord).rgb;
+        vec3 c_color = pow(base_color, vec3(uGamma));
+        
+        vec2 res = textureSize(RT_Left, 0);
+        
+        float c_depth = get_depth(vec2(0.5, 0.5));
+        float s = mix(1000.0/c_depth, 2.0, 0.9);
+        float depth = get_depth(coord);
+        float r_f = abs((depth - c_depth)/(depth + c_depth))*uAperture*s;
+        
+        //float correct_size = max(uRadius * res.y * 0.05 * 2.0 * r_f, 1.0);
+        //float correct_size = max(uRadius * res.y * 0.05 * 2.0 * r_f, 1.0);
+        //float correct_size = floor(uRadius * res.y * 0.05 * 2.0 + 1.0) + 1.0;
+        float base_size = uRadius * res.y * 0.05 * 2.0 + 1.0;
+        float base_n = base_size*base_size*3.0;
+        float correct_size = uRadius * res.y * 0.05 * 2.0 * r_f + 1.0;
+        float correct_n = correct_size*correct_size*3.0;
+        
+        /*
+        vec4 test_color = vec4(0.0);
+        test_color += omw_Texture2D(RT_Left, coord);
+        test_color += omw_Texture2D(RT_Right, coord);
+        test_color += omw_Texture2D(RT_Top_B, coord);
+        test_color.rgb /= test_color.a;
+        */
+        
+        float offset_scale = 1.0 - clamp(1.0 - r_f*base_size, 0.0, 1.0);
+        
+        vec4 new_color = vec4(0.0);
+        new_color += omw_Texture2D(RT_Left, coord + vec2(-0.5/res.x, -0.0/res.y) * 2.0 * r_f * offset_scale);
+        new_color += omw_Texture2D(RT_Right, coord + vec2(0.5/res.x, -0.0/res.y) * 2.0 * r_f * offset_scale);
+        new_color += omw_Texture2D(RT_Top_B, coord + vec2(0.0, -0.75/res.y) * 2.0 * r_f * offset_scale);
+        new_color.rgb /= new_color.a;
+        
+        //new_color = test_color;
+        
+        //float opacity = ((new_color.a / correct_n)-1.0)/correct_n/correct_n/correct_n;
+        //float opacity = 0.0;
+        //float opacity = (1.0 - (correct_n / new_color.a))/new_color.a*64.0;
+        //float opacity = (1.0 - (correct_n/2.0 / new_color.a))/new_color.a*base_size*2.0;
+        //float opacity = (0.5 - (correct_n/2.0 / new_color.a))/new_color.a*base_size*2.0;
+        //float opacity = (1.0 - (correct_n / new_color.a))/new_color.a*base_size;
+        /*
+        float opacity = 1.0;
+        float asdf = max(new_color.a, correct_n)/correct_n;
+        opacity += clamp(1.0 - asdf, 0.0, 1.0);
+        opacity = clamp(1.0 - r_f*base_size, 0.0, 1.0);
+        opacity = pow(opacity, 4.0);
+        */
+        
+        //new_color.rgb = mix(new_color.rgb, c_color, opacity);
+        //new_color.rgb = mix(new_color.rgb, c_color, opacity);
+        //new_color.rgb = mix(new_color.rgb, c_color, clamp(opacity, 0.0, 1.0));
+        
+        new_color.rgb = pow(new_color.rgb, vec3(1.0/uGamma));
+        
+        omw_FragColor.rgb = mix(base_color, new_color.rgb, uStrength);
+        //omw_FragColor.rgb = mix(omw_FragColor.rgb, vec3(opacity), 0.5);
+        //omw_FragColor.rgb = vec3(1.0-opacity);
+        //omw_FragColor.rgb = vec3((asdf)-0.5);
+        //omw_FragColor.rgb = vec3(correct_size/16.0);
+    }
+}
+
+technique {
+    passes = nomipmap, vert, left, right, top_a, top_b, final;
+    description = "Hex-based depth of field shader.";
+    author = "Wareya";
+    version = "0.1";
+}
+

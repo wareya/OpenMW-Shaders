@@ -1,0 +1,93 @@
+uniform_float uRadius {
+    default = 0.1;
+    min = 0.01;
+    max = 0.25;
+    step = 0.01;
+    display_name = "Radius";
+    description = "Size of the effect.";
+}
+uniform_float uCutoff {
+    default = 0.05;
+    min = 0.0;
+    max = 1.0;
+    step = 0.01;
+    display_name = "Cutoff";
+    description = "Brightness above which the effect takes place.";
+}
+uniform_float uThreshold {
+    default = 3.0;
+    min = 1.0;
+    max = 20.0;
+    step = 0.25;
+    display_name = "Threshold";
+    description = "How similar two colors have to be to get debanded.";
+}
+uniform_int uCasts {
+    default = 1;
+    min = 1;
+    max = 16;
+    step = 1;
+    description = "Number of nearby pixels to check.";
+    display_name = "Casts";
+}
+
+fragment final {
+    omw_In vec2 omw_TexCoord;
+    
+    float scramblify(float x)
+    {
+        x = fract(x);
+        x = x + 4.0;
+        x = x*x;
+        x = x*x;
+        return fract(x);
+    }
+    float scramblev2_inner(vec2 v, float z)
+    {
+        return scramblify(v.x*5.4491 + v.y*2.319 + z);
+    }
+
+    float time = fract(omw.simulationTime);
+    vec4 scramblev2(vec2 v)
+    {
+        v *= 61.12;
+        vec2 fwup = vec2(scramblev2_inner(v, fract(time)), scramblev2_inner(v, fract(time*fract(v.x) + 0.01) + 0.18943));
+        return vec4(0.5) - vec4(fwup, fwup);
+    }
+
+    void main()
+    {
+        vec2 px = omw.rcpResolution;
+        vec3 underlying_color = omw_GetLastShader(omw_TexCoord).rgb;
+        vec3 base_color = vec3(0.0);
+        float norm = 0.0;
+        for (int i = 0; i < uCasts && dot(base_color, vec3(0.333333)) < uCutoff; i++)
+        {
+            vec2 r = (scramblev2(omw_TexCoord + vec2(float(i))).xy);
+            r.y *= px.y/px.x;
+            r *= uRadius*0.2;
+            vec3 c = omw_GetLastShader(omw_TexCoord + r).rgb;
+            if (c != underlying_color
+                && dot(c, vec3(0.333333)) < uCutoff
+                && dot(abs(c - underlying_color), vec3(0.333333)) < uThreshold / 255.0)
+            {
+                base_color += c;
+                norm += 1.0;
+            }
+        }
+        if (norm != 0.0)
+            base_color /= norm;
+        else
+            base_color = underlying_color;
+
+        omw_FragColor.rgb = base_color.rgb;
+    }
+}
+
+technique {
+    passes = final;
+    description = "Bad debanding filter.";
+    author = "Wareya";
+    version = "0.1";
+}
+
