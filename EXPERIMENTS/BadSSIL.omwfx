@@ -85,7 +85,12 @@ shared {
         float d_v = dot(d.rgb, vec3(0.333)) * d.a;
         float e_v = dot(e.rgb, vec3(0.333)) * e.a;
         
-        float eles[5] = {a_v, b_v, c_v, d_v, e_v};
+        	float eles[5];
+        	eles[0] = a_v;
+        	eles[1] = b_v;
+        	eles[2] = c_v;
+        	eles[3] = d_v;
+        	eles[4] = e_v;
         for(int n = 0; n < 5; n++)
         {
             for(int i = 0; i < 5; i++)
