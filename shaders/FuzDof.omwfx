@@ -205,42 +205,48 @@ fragment final(rt1=RT_Mip1, rt2=RT_Mip2, rt3=RT_Mip3) {
                 part_depth = c_depth;
             if (uForeground && part_depth > c_depth)
                 part_depth = c_depth;
-            /*
-            if (part_depth > ref_depth)
-            {
-                new_coord = coord + pos[i].xy * ires * clamp(base_size * ref_r_f, 0.0, radius);
-                part_depth = get_depth(new_coord);
-                if (uBackground && part_depth < c_depth)
-                    part_depth = c_depth;
-                if (uForeground && part_depth > c_depth)
-                    part_depth = c_depth;
-            }
-            */
             float r_f_3 = calc_coc(s, part_depth, c_depth);
+            
             float rfmod = r_f_3;
             if (part_depth > ref_depth)
                 rfmod = ref_r_f;
             
             vec2 modifier = ires * clamp(base_size * rfmod, 0.0, radius);
             float modlen = length(modifier);
+            
             new_coord = coord + pos[i].xy * modifier;
             
             float mod2mod = 2.0;
-            if (modlen * 40.0 < 0.2)
+            if (modlen * 40.0 < 0.1)
+                mod2mod = 1.0;
+            else if (modlen * 40.0 < 0.2)
                 mod2mod = 2.0;
             else if (modlen * 40.0 < 0.4)
                 mod2mod = 4.0;
             else
                 mod2mod = 8.0;
             
-            float fudge_depth = get_depth(coord + pos[i].xy * modifier * mod2mod);
+            //mod2mod *= 2.0;
+            //mod2mod = 1.0;
+            
+            float fudge_depth = get_depth(coord + pos[i].xy * modifier + normalize(pos[i].xy) * mod2mod * ires);
+            //float fudge_depth = get_depth(coord + pos[i].xy * modifier * mod2mod);
             if (uBackground && fudge_depth < c_depth)
                 fudge_depth = c_depth;
             if (uForeground && fudge_depth > c_depth)
                 fudge_depth = c_depth;
             float r_f_4 = calc_coc(s, fudge_depth, c_depth);
-            vec2 modifier2 = ires * clamp(base_size * r_f_4, 0.0, radius);
+            
+            float rfmod2 = r_f_4;
+            if (fudge_depth > ref_depth)
+                rfmod2 = ref_r_f;
+            
+            vec2 modifier2 = ires * clamp(base_size * rfmod2, 0.0, radius);
             float modlen2 = min(modlen, length(modifier2));
+            //float modlen2 = length(modifier2);
+            //float modlen2 = modlen;
+            
+            //new_coord = coord + pos[i].xy * modifier2;
             
             vec3 cpart = vec3(0.0);
             if (modlen2 * 40.0 < 0.1)
@@ -252,10 +258,14 @@ fragment final(rt1=RT_Mip1, rt2=RT_Mip2, rt3=RT_Mip3) {
             else
                 cpart = texture(RT_Mip3, new_coord).rgb * pos[i].z;
             
-            //if ((depth - part_depth) < -10.0)
-            //if (i > 0 && part_depth + 1000.0 < depth)
+            //if ((c_depth - part_depth) > -10.0)
+            //if (i > 0 && part_depth + 1000.0 < ref_depth)
+            //if (i > 0 && part_depth - 1000.0 > ref_depth)
+            //    continue;
+            //if (i > 0 && abs(modlen2 - modlen) > 0.006)
             //    continue;
             
+            //outcolor += vec4(cpart, pos[i].z) * (modlen + 0.01);
             outcolor += vec4(cpart, pos[i].z);
         }
         vec3 outcolor_rgb = pow(outcolor.rgb / outcolor.a, vec3(1.0/uGamma));
