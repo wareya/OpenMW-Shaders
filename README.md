@@ -20,7 +20,7 @@ zoom, zoom_smooth: Zoom in the center of the screen. Mainly for debugging, but i
 
 **THIS WATER SHADER IS NOT COMPATIBLE WITH OUTDATED CORE SHADER MODS. DO NOT ASK ANYONE FOR HELP IF YOU TRY TO USE IT WITH OUTDATED CORE SHADER MODS.**
 
-To use the water shader, find and open `water.frag` and, below this line:
+To use the water shader, find and open `water.frag` and, below the line that starts with:
 
 `gl_FragData[0] = applyFogAtDist(`  (...)
 
