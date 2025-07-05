@@ -22,7 +22,7 @@ zoom, zoom_smooth: Zoom in the center of the screen. Mainly for debugging, but i
 
 To use the water shader, find and open `water.frag` and, below this line:
 
-`gl_FragData[0] = applyFogAtDist(gl_FragData[0], radialDepth, linearDepth);`
+`gl_FragData[0] = applyFogAtDist(`  (...)
 
 Add this new line:
 
