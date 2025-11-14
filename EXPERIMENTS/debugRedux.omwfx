@@ -1,0 +1,76 @@
+uniform_bool uDisplayDepth {
+    header = "#{OMWShaders:DebugHeaderDepth}";
+    default = true;
+    display_name = "#{OMWShaders:DisplayDepthName}";
+}
+
+uniform_float uDepthFactor {
+    step = 0.1;
+    min = 0.01;
+    max = 20.0;
+    default = 1.0;
+    display_name = "#{OMWShaders:DisplayDepthFactorName}";
+    description = "#{OMWShaders:DisplayDepthFactorDescription}";
+}
+
+uniform_bool uDisplayNormals {
+    header = "#{OMWShaders:DebugHeaderNormals}";
+    default = true;
+    display_name = "#{OMWShaders:DisplayNormalsName}";
+}
+
+uniform_bool uNormalsInWorldSpace {
+    default = false;
+    display_name = "#{OMWShaders:NormalsInWorldSpace}";
+}
+
+uniform_bool uNormalsFromGeometry {
+    default = false;
+    display_name = "Normals from Geometry";
+}
+
+fragment main {
+
+    omw_In vec2 omw_TexCoord;
+
+    void main()
+    {
+        omw_FragColor = omw_GetLastShader(omw_TexCoord);
+
+        if (uDisplayDepth)
+            omw_FragColor = vec4(vec3(omw_GetLinearDepth(omw_TexCoord) / omw.far * uDepthFactor), 1.0);
+#if OMW_NORMALS
+        if (uDisplayNormals && (!uDisplayDepth || omw_TexCoord.x < 0.5)) {
+            if (uNormalsInWorldSpace)
+                omw_FragColor.rgb = omw_GetNormalsWorldSpace(omw_TexCoord) * 0.5 + 0.5;
+            else
+                omw_FragColor.rgb = omw_GetNormals(omw_TexCoord) * 0.5 + 0.5;
+            if (uNormalsFromGeometry)
+            {
+                float d = omw_GetLinearDepth(omw_TexCoord);
+                float x_d = omw_GetLinearDepth(omw_TexCoord + omw.rcpResolution.xy*vec2(1.0,0.0));
+                float y_d = omw_GetLinearDepth(omw_TexCoord + omw.rcpResolution.xy*vec2(0.0,1.0));
+                
+                vec4 c = omw.invProjectionMatrix * vec4(((omw_TexCoord)*2.0 - 1.0)*d, d, d);
+                vec4 x = omw.invProjectionMatrix * vec4(((omw_TexCoord + omw.rcpResolution.xy*vec2(1.0,0.0))*2.0 - 1.0)*x_d, x_d, x_d);
+                vec4 y = omw.invProjectionMatrix * vec4(((omw_TexCoord + omw.rcpResolution.xy*vec2(0.0,1.0))*2.0 - 1.0)*y_d, y_d, y_d);
+                
+                vec4 dxv = (x-c);
+                vec4 dyv = (y-c);
+                
+                vec3 n = cross(dxv.xyz, dyv.xyz);
+                n = normalize(n);
+                omw_FragColor.rgb = n * 0.5 + 0.5;
+            }
+        }
+#endif
+    }
+}
+
+technique {
+    passes = main;
+    description = "#{OMWShaders:DebugDescription}";
+    author = "OpenMW";
+    version = "1.0";
+    pass_normals = true;
+}

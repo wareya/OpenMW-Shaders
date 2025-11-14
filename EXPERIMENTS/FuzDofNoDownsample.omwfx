@@ -1,0 +1,249 @@
+uniform_float uRadius {
+    default = 0.1;
+    min = 0.01;
+    max = 0.2;
+    step = 0.01;
+    display_name = "Radius";
+    description = "Size of the effect.";
+}
+uniform_float uAperture {
+    default = 0.2;
+    min = 0.025;
+    max = 1.0;
+    step = 0.025;
+    display_name = "Aperture";
+    description = "Size of the aperture. Smaller apertures cause the in-focus area to be larger.";
+}
+uniform_float uStrength {
+    default = 1.0;
+    min = 0.0;
+    max = 1.0;
+    step = 0.01;
+    display_name = "Strength";
+    description = "Strength of the effect.";
+}
+uniform_float uGamma {
+    default = 2.2;
+    min = 0.2;
+    max = 4.0;
+    step = 0.05;
+    display_name = "Gamma";
+    description = "Gamma compression exponent. Controls whether bright areas bleed into dark areas or vice versa.";
+}
+uniform_bool uForeground {
+    default = false;
+    description = "Only blur foreground.";
+    display_name = "Foreground Only";
+}
+uniform_bool uBackground {
+    default = true;
+    description = "Only blur background.";
+    display_name = "Background Only";
+}
+
+shared {
+    float get_depth(vec2 coord)
+    {
+        float depth = omw_GetLinearDepth(coord);
+        return (depth);
+    }
+}
+
+render_target RT_Mip1 {
+    internal_format = rgb16f;
+    source_type = float;
+    source_format = rgb;
+    mipmaps = false;
+    wrap_s = clamp_to_edge;
+    wrap_t = clamp_to_edge;
+    mag_filter = linear;
+}
+
+render_target RT_Mip2 {
+    internal_format = rgb16f;
+    source_type = float;
+    source_format = rgb;
+    mipmaps = false;
+    wrap_s = clamp_to_edge;
+    wrap_t = clamp_to_edge;
+    mag_filter = linear;
+}
+
+render_target RT_Mip3 {
+    internal_format = rgb16f;
+    source_type = float;
+    source_format = rgb;
+    mipmaps = false;
+    wrap_s = clamp_to_edge;
+    wrap_t = clamp_to_edge;
+    mag_filter = linear;
+}
+
+fragment mipmap1(target=RT_Mip1) {
+    omw_In vec2 omw_TexCoord;
+
+    void main()
+    {
+        vec2 res = textureSize(omw_SamplerLastShader, 0);
+        vec2 ires = 1.1/res;
+        vec4 c
+           = pow(omw_GetLastShader(omw_TexCoord + vec2(+ires.x, +ires.y)), vec4(vec3(uGamma), 1.0)) * 0.25;
+        c += pow(omw_GetLastShader(omw_TexCoord + vec2(-ires.x, +ires.y)), vec4(vec3(uGamma), 1.0)) * 0.25;
+        c += pow(omw_GetLastShader(omw_TexCoord + vec2(+ires.x, -ires.y)), vec4(vec3(uGamma), 1.0)) * 0.25;
+        c += pow(omw_GetLastShader(omw_TexCoord + vec2(-ires.x, -ires.y)), vec4(vec3(uGamma), 1.0)) * 0.25;
+        
+        omw_FragColor = c;
+        omw_FragColor.a = 1.0;
+    }
+}
+
+fragment mipmap2(rt1=RT_Mip1, target=RT_Mip2) {
+    omw_In vec2 omw_TexCoord;
+
+    void main()
+    {
+        vec2 res = textureSize(RT_Mip1, 0);
+        vec2 ires = 2.2/res;
+        vec4 c
+           = texture(RT_Mip1, omw_TexCoord + vec2(+ires.x, +ires.y)) * 0.25;
+        c += texture(RT_Mip1, omw_TexCoord + vec2(-ires.x, +ires.y)) * 0.25;
+        c += texture(RT_Mip1, omw_TexCoord + vec2(+ires.x, -ires.y)) * 0.25;
+        c += texture(RT_Mip1, omw_TexCoord + vec2(-ires.x, -ires.y)) * 0.25;
+        
+        omw_FragColor = c;
+        omw_FragColor.a = 1.0;
+    }
+}
+fragment mipmap3(rt1=RT_Mip2, target=RT_Mip3) {
+    omw_In vec2 omw_TexCoord;
+
+    void main()
+    {
+        vec2 res = textureSize(RT_Mip2, 0);
+        vec2 ires = 4.4/res;
+        vec4 c
+           = texture(RT_Mip2, omw_TexCoord + vec2(+ires.x, +ires.y)) * 0.25;
+        c += texture(RT_Mip2, omw_TexCoord + vec2(-ires.x, +ires.y)) * 0.25;
+        c += texture(RT_Mip2, omw_TexCoord + vec2(+ires.x, -ires.y)) * 0.25;
+        c += texture(RT_Mip2, omw_TexCoord + vec2(-ires.x, -ires.y)) * 0.25;
+        
+        omw_FragColor = c;
+        omw_FragColor.a = 1.0;
+    }
+}
+
+fragment final(rt1=RT_Mip1, rt2=RT_Mip2, rt3=RT_Mip3) {
+    omw_In vec2 omw_TexCoord;
+    
+    void main()
+    {
+        vec2 coord = omw_TexCoord;
+        
+        vec2 res = textureSize(omw_SamplerLastShader, 0);
+        
+        vec3 base_color = omw_GetLastShader(coord).rgb;
+        vec3 c_color = pow(base_color, vec3(uGamma));
+        
+        float c_depth = get_depth(vec2(0.5, 0.5));
+        float s = mix(1000.0/c_depth, 2.0, 0.9);
+        //float r_f = abs((depth - c_depth)/(depth + c_depth))*uAperture*s;
+        float r_f = uAperture*s;
+        
+        vec2 ires = 1.0/res;
+        
+        vec3 pos[18];
+        pos[0] = vec3(0.0, 0.0, 1.0/20.0);
+        for (int i = 0; i < 6; i++)
+            pos[i+1] = vec3(sin(float(i) / 3.0 * 3.141), cos(float(i) / 3.0 * 3.141), 1.0/24.0);
+        for (int i = 0; i < 11; i++)
+            pos[i+7] = vec3(sin(float(i) / 5.5 * 3.141)*2.0, cos(float(i) / 5.5 * 3.141)*2.0, 1.0/16.0);
+        
+        float base_size = res.y * 0.01 + 1.0;
+        
+        float radius = uRadius * 100.0;
+        
+        float ref_depth = get_depth(coord);
+        if (uBackground && ref_depth < c_depth)
+            ref_depth = c_depth;
+        if (uForeground && ref_depth > c_depth)
+            ref_depth = c_depth;
+        float ref_r_f = abs((ref_depth - c_depth)/(ref_depth + c_depth))*uAperture*s;
+        
+        vec4 outcolor = vec4(0.0);
+        for (int i = 0; i < 18; i++)
+        {
+            vec2 new_coord = coord + pos[i].xy * ires * clamp(base_size * r_f, 0.0, radius);
+            float part_depth = get_depth(new_coord);
+            if (uBackground && part_depth < c_depth)
+                part_depth = c_depth;
+            if (uForeground && part_depth > c_depth)
+                part_depth = c_depth;
+            /*
+            if (part_depth > ref_depth)
+            {
+                new_coord = coord + pos[i].xy * ires * clamp(base_size * ref_r_f, 0.0, radius);
+                part_depth = get_depth(new_coord);
+                if (uBackground && part_depth < c_depth)
+                    part_depth = c_depth;
+                if (uForeground && part_depth > c_depth)
+                    part_depth = c_depth;
+            }
+            */
+            float r_f_3 = abs((part_depth - c_depth)/(part_depth + c_depth))*uAperture*s;
+            float rfmod = r_f_3;
+            if (part_depth > ref_depth)
+                rfmod = ref_r_f;
+            
+            vec2 modifier = ires * clamp(base_size * rfmod, 0.0, radius);
+            float modlen = length(modifier);
+            new_coord = coord + pos[i].xy * modifier;
+            
+            float mod2mod = 2.0;
+            if (modlen * 40.0 < 0.2)
+                mod2mod = 2.0;
+            else if (modlen * 40.0 < 0.4)
+                mod2mod = 4.0;
+            else
+                mod2mod = 8.0;
+            
+            float fudge_depth = get_depth(coord + pos[i].xy * modifier * mod2mod);
+            if (uBackground && fudge_depth < c_depth)
+                fudge_depth = c_depth;
+            if (uForeground && fudge_depth > c_depth)
+                fudge_depth = c_depth;
+            float r_f_4 = abs((fudge_depth - c_depth)/(fudge_depth + c_depth))*uAperture*s;
+            vec2 modifier2 = ires * clamp(base_size * r_f_4, 0.0, radius);
+            float modlen2 = min(modlen, length(modifier2));
+            
+            vec3 cpart = vec3(0.0);
+            if (modlen2 * 40.0 < 0.1)
+                cpart = pow(texture(omw_SamplerLastShader, new_coord).rgb, vec3(uGamma)) * pos[i].z;
+            else if (modlen2 * 40.0 < 0.2)
+                cpart = texture(RT_Mip1, new_coord).rgb * pos[i].z;
+            else if (modlen2 * 40.0 < 0.4)
+                cpart = texture(RT_Mip2, new_coord).rgb * pos[i].z;
+            else
+                cpart = texture(RT_Mip3, new_coord).rgb * pos[i].z;
+            
+            //if ((depth - part_depth) < -10.0)
+            //if (i > 0 && part_depth + 1000.0 < depth)
+            //    continue;
+            
+            outcolor += vec4(cpart, pos[i].z);
+        }
+        vec3 outcolor_rgb = pow(outcolor.rgb / outcolor.a, vec3(1.0/uGamma));
+        
+        omw_FragColor.rgb = mix(base_color, outcolor_rgb, uStrength);
+        omw_FragColor.a = 1.0;
+        
+        //omw_FragColor = pow(texture(RT_Mip3, coord).rgba, vec4(vec3(1.0/uGamma), 1.0));
+    }
+}
+
+technique {
+    passes = mipmap1, mipmap2, mipmap3, final;
+    description = "Mipmap-driven depth of field shader.";
+    author = "Wareya";
+    version = "0.1";
+}
+

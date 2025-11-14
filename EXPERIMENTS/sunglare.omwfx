@@ -1,0 +1,63 @@
+
+shared {
+    vec2 getSunView()
+    {
+        vec4 pos = (omw.projectionMatrix * omw.viewMatrix) * omw.sunPos;
+        pos.xy /= pos.w;
+        pos.xy = pos.xy * 0.5 + 0.5;
+        return vec2(pos.xy);
+    }
+}
+
+
+fragment main {
+    omw_In vec2 omw_TexCoord;
+    
+    void main()
+    {
+        vec2 res = omw.resolution.xy;
+        float ar = res.x / res.y;
+        vec4 col = omw_GetLastShader(omw_TexCoord);
+        vec2 spv = getSunView();
+        vec2 ld = spv;
+        ld.x *= ar;
+        vec2 cc = omw_TexCoord;
+        cc.x *= ar;
+        
+        vec2 f = vec2(0.01*ar, 0.01);
+        
+        vec2 tc = (omw.viewMatrix * vec4(omw_TexCoord * 20000.0, omw_TexCoord.x * 20000.0, 0.0)).xy;
+        float inclusion = 0.0;
+        float n = 0.0;
+        for (float y = -2.0; y <= 2.0; y += 2.0)
+        {
+            for (float x = -2.0; x <= 2.0; x += 2.0)
+            {
+                vec2 v = vec2(x, y);
+                vec2 offs = vec2(v.x*f.x + v.y*f.y*0.37, v.y*f.y - v.x*f.x*0.37);
+                float depth = omw_GetLinearDepth(spv + offs);
+                if (depth > omw.far * 0.99)
+                    inclusion += 1.0;
+                n += 1.0;
+            }
+        }
+        inclusion /= (n + 0.0001);
+        
+        vec2 diff = (cc - ld);
+        diff *= 5.0;
+        float d = dot(diff, diff);
+        d *= sqrt(d);
+        vec4 sc = omw.sunColor * omw.sunVis / (d + 0.5) * 1.0 * inclusion;
+        col += sc;
+        omw_FragColor = col;
+    }
+
+}
+
+technique {
+    passes = main;
+    description = "Sun glare (godrays alternative) -- stripped down from godrays by Phal, Hrnchamd, Dexter, Wazabear";
+    author = "Wareya";
+    version = "1.2.1";
+    flags = Disable_Interiors, Disable_SunGlare, Disable_Underwater;
+}

@@ -1,0 +1,99 @@
+uniform_float uStrength {
+    default = 0.8;
+    min = 0.0;
+    max = 1.0;
+    step = 0.1;
+    display_name = "Strength";
+    description = "Strength of the effect.";
+}
+uniform_bool uDebug {
+    default = false;
+    description = "Display raw lighting overlay.";
+    display_name = "Debug";
+}
+uniform_bool uNoblur {
+    default = false;
+    description = "";
+    display_name = "No blur";
+}
+
+shared {
+    float g = 2.0;
+    float g2 = (1.0 / g);
+    
+    float get_depth(vec2 coord)
+    {
+        float depth = omw_GetLinearDepth(coord);
+        return depth;
+    }
+}
+
+fragment final() {
+    omw_In vec2 omw_TexCoord;
+
+    vec4 get_info(vec2 coord)
+    {
+        vec4 c = omw_GetLastShader(coord);
+        c.rgb = pow(c.rgb, vec3(g));
+        float d = get_depth(coord);
+        //d = sqrt(d) * 100.0;
+        //d = d*d * 0.005;
+        return vec4(c.rgb, d);
+    }
+    
+    void main()
+    {
+        vec2 px = omw.rcpResolution;
+        vec4 a = get_info(omw_TexCoord);
+        vec4 b = get_info(omw_TexCoord + px * vec2(1.0, 0.0));
+        vec4 c = get_info(omw_TexCoord - px * vec2(1.0, 0.0));
+        vec4 d = get_info(omw_TexCoord + px * vec2(0.0, 1.0));
+        vec4 e = get_info(omw_TexCoord - px * vec2(0.0, 1.0));
+        
+        float depths[8];
+        depths[0] = (a.a - b.a) * 2.0;
+        depths[1] = (a.a - c.a) * 2.0;
+        depths[2] = (a.a - d.a) * 2.0;
+        depths[3] = (a.a - e.a) * 2.0;
+        
+        depths[4] = get_depth(omw_TexCoord + px * vec2(1.0, -1.0)) - a.a;
+        depths[5] = get_depth(omw_TexCoord + px * vec2(-1.0, 1.0)) - a.a;
+        depths[6] = get_depth(omw_TexCoord + px * vec2(-1.0, -1.0)) - a.a;
+        depths[7] = get_depth(omw_TexCoord + px * vec2(1.0, 1.0)) - a.a;
+        
+        depths[4] = get_depth(omw_TexCoord + px * vec2(2.0, 0.0)) - a.a;
+        depths[5] = get_depth(omw_TexCoord - px * vec2(2.0, 0.0)) - a.a;
+        depths[6] = get_depth(omw_TexCoord + px * vec2(0.0, 2.0)) - a.a;
+        depths[7] = get_depth(omw_TexCoord - px * vec2(0.0, 2.0)) - a.a;
+        
+        float _d = 0.0;
+        float _clampval = 10.0;
+        for (int i = 0; i < 8; i++)
+            _d += clamp(depths[i], -_clampval, _clampval);
+        _d *= 10.0/8.0;
+        
+        float _d2 = 0.0;
+        float _clampval2 = 10.0;
+        for (int i = 0; i < 4; i++)
+            _d2 += clamp(depths[i], -_clampval2, _clampval2);
+        _d2 *= 10.0/4.0;
+        
+        bool noblur = bool(uNoblur);
+        if (abs(_d) < _clampval * 1.5 && abs(_d2) < _clampval2 * 9.0)
+            noblur = true;
+            
+        omw_FragColor = (a+b+c+d+e)*(1.0/5.0);
+        omw_FragColor.a = 1.0;
+        omw_FragColor.rgb = mix(a.rgb, omw_FragColor.rgb, uStrength);
+        if (noblur) omw_FragColor = a;
+        omw_FragColor.rgb = pow(omw_FragColor.rgb, vec3(g2));
+    }
+}
+
+technique {
+    passes = final;
+    description = "Blurs parts of the screen that are noisy on the depth plane, for example far-away alpha-tested foliage.";
+    author = "Wareya";
+    version = "0.1";
+}
+
