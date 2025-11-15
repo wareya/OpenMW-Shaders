@@ -1,0 +1,972 @@
+uniform_float uRange {
+    default = 2.0;
+    min = 0.01;
+    max = 4.0;
+    step = 0.05;
+    description = "What fraction of the screen the raymarcher is willing to cover.";
+    display_name = "Range";
+}
+uniform_float uSmoothness {
+    default = 0.5;
+    min = 0.0;
+    max = 1.0;
+    step = 0.05;
+    description = "Smoothness of water normals.";
+    display_name = "Smoothness";
+}
+uniform_int uSteps {
+    default = 16;
+    min = 3;
+    max = 256;
+    step = 1;
+    description = "Number of steps the raymarcher takes. BIG impact on performance.";
+    display_name = "Steps";
+}
+uniform_int uGranularIterations {
+    default = 1;
+    min = 0;
+    max = 3;
+    step = 1;
+    description = "Number of extra times to run the raymarching algorithm. Impacts performance.";
+    display_name = "Refinement Runs";
+}
+uniform_float uGamma {
+    default = 2.2;
+    min = 0.1;
+    max = 4.0;
+    step = 0.05;
+    description = "Gamma compression.";
+    display_name = "Gamma";
+}
+uniform_float uDistThresh {
+    default = 10.0;
+    min = 0.0;
+    max = 300.0;
+    step = 1.0;
+    description = "Pixel distance threshold for ray data interpolation.";
+    display_name = "Interp Distance Threshold";
+}
+uniform_float uDepthThresh {
+    default = 20.0;
+    min = 0.0;
+    max = 2000.0;
+    step = 5.0;
+    description = "...";
+    display_name = "Interp Depth Threshold";
+}
+uniform_float uThickness {
+    default = 80.0;
+    min = 0.0;
+    max = 10000.0;
+    step = 10.0;
+    description = "Far comparison thickness.";
+    display_name = "Thickness";
+}
+uniform_bool uLinearEstimate {
+    default = true;
+    description = "Whether to do hit coordinate estimation interpolation.";
+    display_name = "Linear contact estimation";
+}
+uniform_bool uScreenEdgeHack {
+    default = true;
+    description = "Change how the screen edge is handled.";
+    display_name = "Screen Edge Hack";
+}
+uniform_bool uParticleHack {
+    default = true;
+    description = "Turn down effect in bright areas of the screen to avoid thrashing particles.";
+    display_name = "Particle Hack";
+}
+uniform_bool uUseStepcountNoise {
+    default = false;
+    description = "Add a noise effect that makes different spots hit slightly different locations in 3d space.";
+    display_name = "Use Stepcount Noise";
+}
+uniform_float uRefraction {
+    default = 0.25;
+    min = 0.0;
+    max = 1.0;
+    step = 0.01;
+    description = "Whether to do refraction. Almost free!";
+    display_name = "Refraction";
+}
+uniform_bool uUnderwaterFog {
+    default = true;
+    description = "Whether to add fog when looking underwater from above water.";
+    display_name = "Underwater Fog";
+}
+uniform_float uDemoHack {
+    default = 0.5;
+    min = 0.0;
+    max = 1.0;
+    step = 0.05;
+    description = "Hack reflections and refractions for demonstration.";
+    display_name = "Demo Hack";
+}
+uniform_float uSkyBlendEstimation {
+    default = 0.5;
+    min = 0.0;
+    max = 1.0;
+    step = 0.05;
+    description = "Hack for people using sky blending. 0 to disable.";
+    display_name = "Sky Blending Hack";
+}
+uniform_float uSunRadius {
+    default = 0.5;
+    min = 0.0;
+    max = 10.0;
+    step = 0.05;
+    description = "...";
+    display_name = "Sun Radius";
+}
+uniform_float uSunBrightness {
+    default = 100.0;
+    min = 0.0;
+    max = 10000.0;
+    step = 25.0;
+    description = "...";
+    display_name = "Sun Brightness";
+}
+uniform_float uSunRoughness {
+    default = 0.03;
+    min = 0.001;
+    max = 1.0;
+    step = 0.01;
+    description = "...";
+    display_name = "Sun Roughness";
+}
+uniform_bool uWetnessHack {
+    default = false;
+    description = "...";
+    display_name = "Wetness Hack";
+}
+uniform_bool uDebugShinyWorld {
+    default = false;
+    description = "...";
+    display_name = "Debug Shiny World";
+}
+uniform_bool uTriangleNormals {
+    default = false;
+    description = "...";
+    display_name = "Debug Triangle Normals";
+}
+uniform_bool uDebugCastbuffer {
+    default = false;
+    description = "...";
+    display_name = "Debug Raymarch Buffer";
+}
+uniform_bool uDebugInterpolation {
+    default = false;
+    description = "...";
+    display_name = "Debug Ray Data Interpolation";
+}
+
+render_target RT_Info {
+    width_ratio = 0.5;
+    height_ratio = 0.5;
+    internal_format = rgba16f;
+    source_type = float;
+    source_format = rgb;
+    mipmaps = false;
+    mag_filter = linear;
+    min_filter = nearest;
+    wrap_s = clamp_to_edge;
+    wrap_t = clamp_to_edge;
+}
+
+render_target RT_Temp {
+    internal_format = rgba16f;
+    source_type = float;
+    source_format = rgb;
+    mipmaps = false;
+    mag_filter = linear;
+    min_filter = nearest;
+    wrap_s = clamp_to_edge;
+    wrap_t = clamp_to_edge;
+}
+
+shared { 
+    #define PI 3.1415926535
+    
+    float fresnelSchlick(float incidence, float f0, float f90)
+    {
+        float t = clamp(1.0 - incidence, 0.0, 1.0);
+        float t2 = t*t;
+        float t5 = t2*t2*t;
+        return mix(f0, f90, t5);
+    }
+    float distGGX(float halfIncidence, float r)
+    {
+        r = r*r;
+        r = r*r;
+        
+        float d = halfIncidence*halfIncidence * (r - 1.0) + 1.0;
+        
+        return r / (d * d * PI);
+    }
+    float geoSchlickGGX(float incidence, float roughness)
+    {
+        roughness += 1.0;
+        float k = (roughness * roughness) / 8.0;
+        return incidence / mix(incidence, 1.0, k);
+    }
+    float geoSmith(float viewIncidence, float lightIncidence, float roughness)
+    {
+        return geoSchlickGGX(viewIncidence, roughness) * geoSchlickGGX(lightIncidence, roughness);
+    }
+    float BRDF(vec3 normalDir, vec3 viewDir, vec3 lightDir, vec3 halfDir, float roughness)
+    {
+        float lightIncidence = max(dot(normalDir, lightDir), 0.00001);
+        float halfIncidence  = max(dot(normalDir,  halfDir), 0.00001);
+        float viewIncidence  = max(dot(normalDir,  viewDir), 0.00001);
+        
+        float NDF = distGGX(halfIncidence, roughness);
+        float geo = geoSmith(viewIncidence, lightIncidence, roughness);
+        
+        return (NDF * geo) / (4.0 * viewIncidence * lightIncidence);
+    }
+    
+    float getPBRSpecular(vec3 normal, vec3 viewDir, vec3 lightPos, float roughness)
+    {
+        vec3 lightDir = normalize(lightPos);
+        
+        vec3 reflected = reflect(-viewDir, normal);
+        float angle = acos(dot(reflected, lightDir));
+        if (angle < uSunRadius * PI / 180.0)
+            lightDir = reflected;
+        else
+        {
+            // approximation of rotating the lightdir vector towards the point of reflection by the light's radius (0.5deg)
+            float m = sin(uSunRadius * PI / 180.0);
+            vec3 n = normalize(reflected - lightDir);
+            lightDir = normalize(lightDir + n * m);
+        }
+        
+        vec3 normalDir = normal;
+        vec3 halfDir = normalize(viewDir + lightDir);
+        
+        float baseIncidence = dot(normalDir, lightDir);
+        
+        float fresnel = fresnelSchlick(max(dot(halfDir, viewDir), 0.0), 0.02, 1.0);
+        float specular = BRDF(normalDir, viewDir, lightDir, halfDir, roughness);
+        
+        float eyeCosine = dot(-viewDir, normalDir);
+        if (baseIncidence < 0.0)
+        {
+            baseIncidence = -baseIncidence;
+            eyeCosine = -eyeCosine;
+        }
+        baseIncidence *= clamp(-8.0 * (1.0 - 0.3) * eyeCosine + 1.0, 0.3, 1.0);
+
+        // reduce specularity by incidence against plane normal to conserve energy
+        specular *= baseIncidence;
+        
+        return specular * fresnel;
+    }
+    
+    float unlerp(float x, float low, float high)
+    {
+        return (x-low)/(high-low);
+    }
+    
+    float fogDepth(float depth, vec3 viewDir)
+    {
+#if OMW_RADIAL_FOG
+        depth /= abs(viewDir.z);
+#endif
+        return depth;
+    }
+    float fogDepthToFog(float depth)
+    {
+#if OMW_EXPONENTIAL_FOG
+        float x = max(0.0, unlerp(depth, omw.fogNear/2.0, omw.fogFar));
+        float fogAmount = 1.0 - exp(-2.0 * x);
+#else
+        float fogAmount = clamp(unlerp(depth, omw.fogNear, omw.fogFar), 0.0, 1.0);
+#endif
+        return fogAmount;
+    }
+    float fogSkyFadeContrib(float depth)
+    {  
+        if (uSkyBlendEstimation > 0.0)
+        {
+            //float fadeValue = clamp((omw.far - depth) / (omw.far - omw.far*0.5), 0.0, 1.0);
+            float fadeValue = clamp(unlerp(omw.far - depth, 0.0, omw.far*uSkyBlendEstimation), 0.0, 1.0);
+            fadeValue *= fadeValue;
+            return 1.0-fadeValue;
+        }
+        else
+            return 0.0;
+    }
+    float depthToFog(float depth, vec3 viewDir)
+    {
+        float fogAdjustedDepth = fogDepth(depth, viewDir);
+        return mix(fogDepthToFog(fogAdjustedDepth), 1.0, fogSkyFadeContrib(fogAdjustedDepth));
+    }
+}
+
+fragment ssr(target=RT_Info) {
+    omw_In vec2 omw_TexCoord;
+    
+    struct RaymarchOutput
+    {
+        vec2 coord;
+        vec4 color;
+        float sky;
+    };
+
+    float hash(vec2 p)
+    {
+        return fract(p.x * 3.55 + fract(p.y * 0.311));
+        //return fract(52.9829189 * fract(0.06711056*p.x + 0.00583715*p.y));
+    }
+    vec4 noise_ign(vec2 uv)
+    {
+        vec2 p = uv * omw.resolution * 0.5;
+        p.x = trunc(p.x);
+        p.y = trunc(p.y);
+        return vec4(hash(p), hash(p + 3.1141), hash(p + 5.2593), hash(p + 7.3815)) - 0.5;
+    }
+    
+    RaymarchOutput raymarch(vec3 water_pos, float water_distance, vec3 normal, vec3 reflected, vec2 res)
+    {
+        vec3 reflected_view = (omw.viewMatrix * vec4(reflected, 0.0)).xyz;
+        
+        float final_depth = water_distance;
+        
+        float closest_penetration = -omw.far;
+        bool any_hit = false;
+        float last_non_sky_i = 0;
+        float closest_i = 0;
+        
+        int stepcount = uSteps;
+        float stepcount_f = stepcount + 0.00001;
+        //float world_distance = 1000.0;
+        float world_distance = reflected_view.z < 0.0 ? min(50000.0, omw.far*2.0) : (water_distance / reflected_view.z * 0.99);
+        // as fraction of screen height (if I'm dividing/multiplying by the right values)
+        float screen_distance = uRange;
+        
+        vec4 startpos_view = omw.viewMatrix * vec4(water_pos, 1.0);
+        vec4 startpoint = omw.projectionMatrix * startpos_view;
+        startpoint.xy = (startpoint.xy/startpoint.w);
+        
+        vec4 endpos_view = omw.viewMatrix * vec4(water_pos + reflected*world_distance, 1.0);
+        vec4 endpoint = omw.projectionMatrix * endpos_view;
+        if (endpoint.w < 2.0)
+        {
+            RaymarchOutput ret;
+            ret.coord = vec2(0.0);
+            ret.color = vec4(vec3(-1.0), 0.0);
+            ret.sky = 1.0;
+            return ret;
+        }
+        endpoint.xy = (endpoint.xy/endpoint.w);
+        
+        vec2 endpoint_clamped = endpoint.xy;
+        if(true)
+        {
+            endpoint_clamped.xy -= startpoint.xy;
+            endpoint_clamped.x *= res.x/res.y;
+            
+            float len = length(endpoint_clamped.xy);
+            if(len > screen_distance*2.0)
+                endpoint_clamped.xy *= screen_distance*2.0/len;
+            
+            endpoint_clamped.x /= res.x/res.y;
+            endpoint_clamped.xy += startpoint.xy;
+        }
+        
+        float reduction = length(endpoint_clamped.xy - startpoint.xy) / length(endpoint.xy - startpoint.xy);
+        endpos_view = (startpos_view * endpos_view) / mix(endpos_view.z, startpos_view.z, reduction);
+        
+        float real_world_distance = length(endpos_view.xyz - startpos_view.xyz);
+        
+        startpoint.xy = startpoint.xy * 0.5 + 0.5;
+        endpoint_clamped.xy = endpoint_clamped.xy*0.5 + 0.5;
+        
+        float start_depth = omw_GetLinearDepth(startpoint.xy);
+        float end_depth = omw_GetLinearDepth(endpoint_clamped.xy);
+        bool end_is_sky = end_depth == omw.far;
+        
+        float mid_depth = omw_GetLinearDepth(mix(startpoint.xy, endpoint_clamped.xy, 0.75));
+        bool mid_is_sky = mid_depth == omw.far;
+        
+        //vec3 sample = vec3(-1.0);
+        vec2 sample_coord = vec2(0.0);
+        float sample_penetration = 0.0;
+        vec2 origin = omw_TexCoord;
+        
+        vec2 step = (endpoint_clamped.xy - startpoint.xy) / stepcount_f;
+        
+        float max_i = 0;
+        float sampled_i = 0;
+        float jspan = 1.0;
+        
+        vec2 maybe_maybe_coord = vec2(0.0);
+        
+        bool hit_backside = false;
+        
+        for(int j = 0; j < uGranularIterations+1; j += 1)
+        {
+            //float start_i = min(sampled_i, last_non_sky_i) - jspan;
+            float start_i = sampled_i - jspan;
+            float end_i = start_i + jspan * 2.0;
+            if (!any_hit || final_depth == omw.far || closest_penetration > -0.05)
+            {
+                start_i = closest_i - jspan;
+                end_i = closest_i + jspan;
+            }
+            float start = max(0, start_i);
+            float end = (j == 0) ? stepcount : min(stepcount, end_i);
+            float modifier = (j == 0) ? 1.0 : float(end - start)/stepcount_f;
+            if (j > 0)
+                jspan /= stepcount_f;
+            
+            //vec3 prev_sample = vec3(-1.0);
+            vec2 prev_sample_coord = origin + step*start;
+            float prev_sample_penetration = 0.0;
+            bool prev_hit = false;
+            float prev_depth = 0.0;
+            float prev_expected_depth = 0.0;
+            
+            int allow_skip_depth = 0;
+            
+            //for (int i = j == 0 ? 0 : 1; i <= stepcount; i += 1)
+            for (int i = 0; i <= stepcount; i += 1)
+            {
+                float t = float(start)/stepcount_f + float(i)/stepcount_f*modifier;
+                float tnext = float(start)/stepcount_f + float(i+0.5)/stepcount_f*modifier;
+                //if (uUseStepcountNoise && (j != 0 || (i != 0 && i != stepcount)))
+                if (uUseStepcountNoise && t != 0.0 && t != 1.0)
+                {
+                    t = mix(t, tnext, noise_ign(omw_TexCoord).x*2.0-1.0);
+                }
+                t = clamp(t, 0.0, 1.0);
+                vec2 coord = origin + step*t*stepcount_f;
+                
+                // prevent smudging
+                coord = floor(coord/res)*res + res*0.5;
+                
+                float depth = omw_GetLinearDepth(coord);
+                
+                // depth-weighted linear interpolation (perspective correct)
+                float expected_depth = min(omw.far, (-startpos_view.z * -endpos_view.z) / mix(-endpos_view.z, -startpos_view.z, t));
+                float penetration = expected_depth - depth;
+                
+                if (depth != omw.far)
+                    last_non_sky_i = i;
+                if (j == 0 && penetration/expected_depth > closest_penetration && depth != omw.far && penetration <= 0.0)
+                {
+                    closest_i = t*stepcount_f;
+                    closest_penetration = penetration/expected_depth;
+                }
+                
+                // we hit something
+                float pval = 0.0;
+                if (!prev_hit && t < 0.01)
+                    pval = -0.1;
+                if (penetration >= pval)
+                {
+                    if (depth != omw.far && (depth > water_distance || (penetration < uThickness && depth > uThickness)) && t > -0.01)
+                        maybe_maybe_coord = coord;
+                    // if hit is in foreground relative to water, allow the raytracer to pretend the stuff behind it is empty
+                    if (allow_skip_depth == 0)
+                    {
+                        if (depth > water_distance - 40.0)
+                            allow_skip_depth = 1;
+                    }
+                    if (allow_skip_depth == 1 && !prev_hit)
+                    {
+                        if (depth + (depth - prev_depth) + uThickness < water_distance)
+                            allow_skip_depth = 2;
+                    }
+                    
+                    if (
+                        !prev_hit && (
+                        sample_coord == vec2(0.0)
+                        || (j == 0 && penetration > sample_penetration + uThickness)
+                        || j > 0
+                        )
+                        && (depth > water_distance || penetration - water_distance + uThickness < prev_sample_penetration)
+                        )
+                    {
+                        sample_penetration = penetration;
+                        
+                        // bypass if coming from behind object, or thickness test passes and nearer than previous step
+                        if (prev_hit || depth == omw.far || (expected_depth < depth + uThickness && depth + uThickness < prev_depth))
+                        {
+                            //sample = omw_GetLastShader(coord).rgb;
+                            sample_coord = coord;
+                            sampled_i = t*stepcount_f;
+                        }
+                        // estimation of sample coordinate, unless previous step was further away
+                        //else if (uLinearEstimate && prev_depth < depth + uThickness)
+                        else if (i != 0 && uLinearEstimate && prev_depth < depth + uThickness)
+                        {
+                            float p = abs(prev_sample_penetration) / (penetration + abs(prev_sample_penetration));
+                            float e = min(penetration, (prev_sample_penetration * penetration) / mix(-penetration, -prev_sample_penetration, 0.0));
+                            //penetration = sqrt(penetration);
+                            //float p2 = mix(prev_sample_penetration, penetration, 0.0);
+                            //float p2 = abs(prev_sample_penetration) / (penetration + abs(prev_sample_penetration));
+                            float p2 = abs(prev_sample_penetration) / (e + abs(prev_sample_penetration));
+                            sample_coord = mix(prev_sample_coord, coord, p2);
+                            sampled_i = t*stepcount_f - modifier + p2*modifier;
+                            sample_penetration = p2;
+                        }
+                        else
+                        {
+                            // for proper search
+                            //if (true)//depth > water_distance - 1.0)
+                            //if (allow_skip_depth != 0)
+                            //if (false)
+                            //if (true)
+                            //if (depth != omw.far && depth > water_distance)
+                            //if (depth == omw.far)
+                            
+                            vec3 sdiff = normalize(omw_GetWorldPosFromUV(prev_sample_coord) - water_pos);
+                            vec3 sdiff2 = normalize(omw_GetWorldPosFromUV(sample_coord) - water_pos);
+                            
+                            if (i != 0 && (depth > water_distance || dot(sdiff, normal) >= -0.05))
+                            {
+                                if (j != uGranularIterations || prev_depth > water_distance)
+                                {
+                                    sample_coord = prev_sample_coord;
+                                    sampled_i = t*stepcount_f - modifier;
+                                }
+                                else
+                                {
+                                    sample_coord = coord;
+                                    sampled_i = t*stepcount_f;
+                                }
+                            }
+                        }
+                        
+                        final_depth = depth;
+                        prev_hit = false;
+                        if (allow_skip_depth == 1)
+                            break;
+                    }
+                    prev_hit = true;
+                }
+                else
+                    prev_hit = false;
+                
+                any_hit = true;
+                prev_sample_coord = coord;
+                prev_sample_penetration = penetration;
+                prev_depth = depth;
+                prev_expected_depth = expected_depth;
+                
+                bool cond = coord.y < 0.0 || coord.y > 1.0;
+                if (!uScreenEdgeHack)
+                    cond = cond || coord.x < 0.0 || coord.x > 1.0;
+                if (cond)
+                    break;
+                
+                max_i = max(max_i, i);
+            }
+        }
+        
+        //bool no_sample = sample_penetration == 0.0 && sample_coord == vec2(0.0);
+        bool no_sample = sample_coord == vec2(0.0);
+        
+        float sample_depth = omw_GetLinearDepth(sample_coord);
+        // see through to sky if never hit anything and if endpoint was also sky
+        if ((no_sample || sample_depth == omw.far) && end_is_sky)
+            sample_coord = endpoint_clamped.xy;
+        else if (no_sample && maybe_maybe_coord != vec2(0.0))
+            sample_coord = maybe_maybe_coord;
+        else if (no_sample && omw_GetLinearDepth(endpoint_clamped.xy + vec2(0.05,0.0)) > water_distance && omw_GetLinearDepth(endpoint_clamped.xy + vec2(0.05,0.0)) != omw.far)
+            sample_coord = endpoint_clamped.xy + vec2(0.05,0.0);
+        else if (no_sample && omw_GetLinearDepth(endpoint_clamped.xy - vec2(0.05,0.0)) > water_distance && omw_GetLinearDepth(endpoint_clamped.xy - vec2(0.05,0.0)) != omw.far)
+            sample_coord = endpoint_clamped.xy - vec2(0.05,0.0);
+        else if (no_sample)
+        {
+            RaymarchOutput ret;
+            ret.coord = vec2(0.0);
+            ret.color = vec4(vec3(-1.0), 0.0);
+            ret.sky = 1.0;
+            return ret;
+        }
+        
+        sample_coord = floor(sample_coord/res)*res + res*0.5;
+        sample_depth = omw_GetLinearDepth(sample_coord);
+
+        vec3 sample = omw_GetLastShader(sample_coord).rgb;
+        vec4 world_color = vec4(vec3(-1.0), 1.0);
+        
+        // apply world with fringe alpha at edges
+        if (true)
+        {
+            float px_dist = length((sample_coord - omw_TexCoord)/res);
+            float n0 = clamp((1.0 - (px_dist / screen_distance)*res.y) * 4.0, 0.0, 1.0);
+            
+            //float offset = 1000.0;
+            //float f = 1.0/(offset*offset)*1000.0;
+            //f = clamp(f, 0.0, 1.0);
+            float f = 0.0001;
+            
+            float gauge = 3.0;
+            gauge = mix(1.0, 50.0, sqrt(f));
+            
+            vec2 clip = max(vec2(0.0), abs(sample_coord*2.0-1.0)*gauge - gauge + 1.0);
+            
+            float a_x = uScreenEdgeHack ? 1.0 : (1.0-pow(clip.x, 4.0));
+            float y_adjust = max(abs(omw_TexCoord.y-0.5)-0.3, 0.0)*10.0 + 1.0;
+            float a_y = clamp(mix(0.0, 3.0*y_adjust, 1.0 - clip.y), 0.0, 1.0);
+            float a = a_x*a_y*n0;
+            a = clamp(a, 0.0, 1.0);
+            a = 1.0-pow(1.0-a, uGamma);
+            
+            world_color = vec4(pow(sample, vec3(uGamma)), a);
+        }
+        
+        RaymarchOutput ret;
+        ret.coord = sample_coord;
+        ret.color = world_color;
+        ret.sky = sample_depth >= omw.far * 0.99 ? 0.0 : 1.0;
+        ret.sky = (1.0 - ret.sky * ret.color.a);
+        float j = max_i / uSteps;
+        //ret.color = vec4(vec3(j*j), 1.0);
+        //ret.color.rg = sample_coord.xy;
+        //ret.color.rg = endpoint_clamped.xy-0.5;
+        //ret.color.rg = startpoint.xy*0.5-0.5;
+        //ret.color.rg = pow(ret.color.rg, vec2(2.0));
+        //ret.color.b = 1.0;
+        //ret.color.a = 1.0;
+        return ret;
+    }
+
+    void main()
+    {
+        float gamma = uGamma;
+        
+        vec2 res = omw.rcpResolution.xy;
+        
+        vec3 base_color_raw = omw_GetLastShader(omw_TexCoord).rgb;
+        vec3 sun_color_raw = omw.sunColor.rgb;
+        
+        vec3 fog_color_raw = omw.fogColor.rgb;
+        //vec3 ambient_color_raw = omw.ambientColor.rgb;
+        vec3 ambient_color_raw = vec3(0.5);
+        
+        vec3 base_color = pow(base_color_raw, vec3(gamma));
+        vec3 sun_color = pow(sun_color_raw, vec3(gamma));
+        vec3 fog_color = pow(fog_color_raw, vec3(gamma));
+        vec3 ambient_color = pow(ambient_color_raw, vec3(gamma));
+        
+        float underwater_distance = omw_GetLinearDepth(omw_TexCoord);
+        
+        vec3 world_pos = omw_GetWorldPosFromUV(omw_TexCoord);
+        bool cam_above = omw.eyePos.z >= omw.waterHeight - 0.001 * underwater_distance;
+        bool frag_above = world_pos.z >= omw.waterHeight - 0.001 * underwater_distance;
+        
+        float sunvis = omw.sunVis;
+        
+        bool hit_water = cam_above != frag_above && omw.isWaterEnabled;
+        bool cond = hit_water;
+        omw_FragColor.a = -1.0;
+        if (underwater_distance != omw.far && cond)
+        {
+            float water_plane_fraction = abs(omw.eyePos.z - omw.waterHeight) / abs(omw.eyePos.z - world_pos.z);
+            float water_distance = water_plane_fraction * underwater_distance;
+            
+            vec3 view_normal = omw_GetNormals(omw_TexCoord).xyz;
+            // normals from water shader are too strong, make them weaker
+            vec3 view_up = (omw.viewMatrix * vec4(0.0, 0.0, 1.0, 0.0)).xyz;
+            view_normal = normalize(mix(view_normal, view_up, uSmoothness));
+            vec3 normal = normalize((omw.invViewMatrix * vec4(view_normal, 0.0)).xyz);
+            
+            vec3 view_ray = normalize(world_pos - omw.eyePos.xyz);
+            vec3 reflected = normalize(reflect(view_ray, normal));
+            
+            vec3 water_pos = mix(omw.eyePos.xyz, world_pos, water_distance/underwater_distance);
+            // get reflected world color
+            RaymarchOutput march_data = raymarch(water_pos, water_distance, normal, reflected, res);
+            
+            omw_FragColor = vec4(march_data.coord, march_data.sky, march_data.color.a);
+        }
+        //base_color = pow(base_color, vec3(1.0/gamma));
+        //omw_FragColor.rgb = base_color;
+    }
+}
+
+fragment main(rt1=RT_Info, target=RT_Temp) {
+    omw_In vec2 omw_TexCoord;
+    
+    void main()
+    {
+        float gamma = uGamma;
+        
+        vec2 res = omw.rcpResolution.xy;
+        
+        vec3 base_color_raw = omw_GetLastShader(omw_TexCoord).rgb;
+        vec3 sun_color_raw = omw.sunColor.rgb;
+        
+        vec3 fog_color_raw = omw.fogColor.rgb;
+        //vec3 ambient_color_raw = omw.ambientColor.rgb;
+        vec3 ambient_color_raw = vec3(0.5);
+        
+        vec3 base_color = pow(base_color_raw, vec3(gamma));
+        vec3 sun_color = pow(sun_color_raw, vec3(gamma));
+        vec3 fog_color = pow(fog_color_raw, vec3(gamma));
+        vec3 ambient_color = pow(ambient_color_raw, vec3(gamma));
+        
+        vec3 world_pos = omw_GetWorldPosFromUV(omw_TexCoord);
+        bool cam_above = omw.eyePos.z >= omw.waterHeight - 0.002 * abs(omw.eyePos.z - world_pos.z);
+        bool frag_above = world_pos.z >= omw.waterHeight - 0.002 * abs(omw.eyePos.z - world_pos.z);
+        
+        float sunvis = omw.sunVis;
+        
+        ivec2 coord_int = ivec2(floor((omw_TexCoord)*omw.resolution));
+        
+        bool interp_x = false;
+        bool interp_y = false;
+        
+        float underwater_distance = omw_GetLinearDepth(omw_TexCoord);
+        bool hit_water = cam_above != frag_above && omw.isWaterEnabled;
+        bool cond = hit_water;
+        vec4 data_nearest = omw_Texture2D(RT_Info, floor((omw_TexCoord)*omw.resolution*0.5)*res*2.0 + res);
+        //data = omw_Texture2D(RT_Info, omw_TexCoord-res*0.5);
+        //data = omw_Texture2D(RT_Info, omw_TexCoord);
+        if (data_nearest.a == -1.0) cond = false;
+        if (underwater_distance != omw.far && cond)
+        {
+            vec4 data_nearest_a = omw_Texture2D(RT_Info, floor((omw_TexCoord + res*vec2(2.0,0.0))*omw.resolution*0.5)*res*2.0 + res);
+            if (data_nearest_a.a == -1.0)
+                data_nearest_a = data_nearest;
+            vec4 data_nearest_b = omw_Texture2D(RT_Info, floor((omw_TexCoord - res*vec2(0.0,2.0))*omw.resolution*0.5)*res*2.0 + res);
+            if (data_nearest_b.a == -1.0)
+                data_nearest_b = data_nearest;
+            
+            float allowed_dist = length(res) * uDistThresh;
+            float allowed_depth = uDepthThresh;
+            if (allowed_depth == 0.0)
+                allowed_depth = omw.far;
+            
+            float depth_q = omw_GetLinearDepth(data_nearest.xy);
+            float depth_a = omw_GetLinearDepth(data_nearest_a.xy);
+            float depth_b = omw_GetLinearDepth(data_nearest_b.xy);
+            
+            vec4 data = data_nearest;
+            
+            if ((coord_int.x & 1) == 1 && abs(sqrt(depth_a) - sqrt(depth_q)) < allowed_depth && length(data.xy - data_nearest_a.xy) < allowed_dist)
+            {
+                interp_x = true;
+                data.xy += (data_nearest_a.xy - data_nearest.xy)*0.5;
+            }
+            if ((coord_int.x & 1) == 0 && abs(sqrt(depth_a) - sqrt(depth_q)) < allowed_depth && length(data.xy - data_nearest_a.xy) < allowed_dist)
+                interp_x = true;
+            if ((coord_int.y & 1) == 0 && abs(sqrt(depth_b) - sqrt(depth_q)) < allowed_depth && length(data.xy - data_nearest_b.xy) < allowed_dist)
+            {
+                interp_y = true;
+                data.xy += (data_nearest_b.xy - data_nearest.xy)*0.5;
+            }
+            if ((coord_int.y & 1) == 1 && abs(sqrt(depth_b) - sqrt(depth_q)) < allowed_depth && length(data.xy - data_nearest_b.xy) < allowed_dist)
+                interp_y = true;
+            
+            vec4 reflected_color = pow(omw_GetLastShader(data.xy), vec4(vec3(gamma), 1.0));
+            reflected_color.a = data.a;
+            float sky_amount = data.b;
+            
+            float filter_amount = 1.0;
+            
+            float water_plane_fraction = abs(omw.eyePos.z - omw.waterHeight) / abs(omw.eyePos.z - world_pos.z);
+            float water_distance = water_plane_fraction * underwater_distance;
+            
+            vec3 view_ray = normalize(world_pos - omw.eyePos.xyz);
+            vec3 view_ray_view = (omw.viewMatrix * vec4(view_ray, 0.0)).xyz;
+            
+            vec3 view_up = (omw.viewMatrix * vec4(0.0, 0.0, 1.0, 0.0)).xyz;
+            vec3 view_normal = omw_GetNormals(omw_TexCoord).xyz;
+            vec3 normal = normalize((omw.invViewMatrix * vec4(view_normal, 0.0)).xyz);
+            vec3 reflected = normalize(reflect(view_ray, normal));
+            
+            vec4 worldsun = omw.sunPos;
+            if (worldsun.z < 0.0)
+            {
+                worldsun.z = -worldsun.z;
+                filter_amount *= 0.25;
+            }
+            vec3 sun = normalize(worldsun.xyz);//normalize((omw.viewMatrix * -worldsun).xyz);
+            
+            if (!cam_above && frag_above)
+                worldsun.z = -worldsun.z;
+            
+            vec3 reflected_view = normalize((omw.viewMatrix * vec4(reflected, 0.0)).xyz);
+            float water_incidence = abs(dot(view_ray, normal));
+            //float water_incidence = max(0.0, -dot(view_ray, normal));
+            float sun_incidence = dot(sun, reflected);
+            float sun_angle = acos(sun_incidence);
+            
+            float fog_amount = depthToFog(water_distance, normalize(view_ray_view));
+            
+            float hit_sun_main = getPBRSpecular(normal, -view_ray, sun, uSunRoughness);
+            hit_sun_main = clamp(hit_sun_main, 0.0, 100.0);
+            float hit_sun_glare = getPBRSpecular(normal, -view_ray, sun, 0.3);
+            
+            vec3 half_fog = mix(vec3(1.0, 1.0, 1.0), omw.fogColor.xyz, 0.75);
+            
+            vec3 water_color = pow(vec3(0.5, 0.8, 1.0)*omw.fogColor.xyz, vec3(gamma));
+            
+            vec3 sky_color = fog_color*vec3(0.8, 1.0, 1.2);
+            reflected_color.rgb = mix(sky_color, reflected_color.rgb, reflected_color.a);
+            float reflected_amount = fresnelSchlick(water_incidence, 0.02, 1.0);
+            
+            reflected_amount = pow(reflected_amount, gamma/2.2);
+            
+            vec3 distortion_color = base_color;
+            float water_deepness = abs(underwater_distance - water_distance);
+            if (uRefraction > 0.0)
+            {
+                // HACK: this should teeeeecccchhhnically be raymarching but it would be extra cost and the difference doesn't really matter
+                float water_deepness_f = clamp(water_deepness/100.0, 0.0, 1.0) * uRefraction * 500.0;
+                vec2 vn = view_normal.xy - view_up.xy;
+                vec2 distortion_coord = omw_TexCoord + water_deepness_f * vn * res;
+                float distortion_deepness = omw_GetLinearDepth(distortion_coord) - water_distance;
+                if(distortion_deepness > 0.0)
+                {
+                    distortion_color = pow(omw_GetLastShader(distortion_coord).rgb, vec3(uGamma));
+                    water_deepness = distortion_deepness;
+                }
+                
+            }
+            if (cam_above && !frag_above && uUnderwaterFog)
+            {
+                vec3 sky_compressed = pow(fog_color, vec3(gamma));
+                float sky_brightness = dot(sky_compressed, vec3(1.0/3.0));
+                vec3 ambient_sky_filtering_guess = mix(sky_compressed, vec3(sky_brightness), 1.0);
+                vec3 water_fog_color = pow(vec3(0.5, 0.5, 0.5), vec3(gamma)) * ambient_color * ambient_sky_filtering_guess;
+                float distortion_fog_amount = 1.0 - exp(water_deepness/view_ray_view.z * 0.001);
+                distortion_fog_amount *= 1.0 - fog_amount;
+                distortion_color = mix(distortion_color, water_fog_color, distortion_fog_amount);
+            }
+            
+            float distortion_amount = (1.0 - reflected_amount);
+            float water_fraction = pow(0.05, mix(gamma, 1.0, 0.5)) * (1.0 - fog_amount);
+            float water_amount = distortion_amount * water_fraction;
+            distortion_amount *= 1.0 - water_fraction;
+
+            if (uDemoHack > 0.5)
+            {
+                float amount = uDemoHack*2.0-1.0;
+                reflected_amount = mix(reflected_amount, 1.0, amount);
+                distortion_amount *= 1.0 - amount;
+            }
+            else if (uDemoHack < 0.5)
+            {
+                float amount = 1.0 - uDemoHack*2.0;
+                distortion_amount = mix(distortion_amount, 1.0, amount);
+                reflected_amount *= 1.0 - amount;
+            }
+            
+            // mix fog in gamma-compressed light
+            water_color = pow(mix(pow(water_color, vec3(1.0/gamma)), fog_color_raw, fog_amount), vec3(gamma));
+            
+            // wet things are usually darker than dry things :^)
+            vec3 wetness = vec3(pow(mix(cam_above ? 0.8 : 1.4, 1.0, fog_amount), gamma));
+            wetness = mix(vec3(1.0), wetness, clamp(water_deepness*0.5, 0.0, 1.0));
+            if (!uWetnessHack)
+                wetness = vec3(1.0);
+            
+            vec3 mixed_color =
+                distortion_color * distortion_amount * wetness
+              + reflected_color.rgb * reflected_amount
+              + water_color * water_amount;
+
+            // FOR DEBUGGING: set to 0.0 to view reflections 1:1
+            filter_amount *= (1.0-fog_amount);
+            //mixed_color *= 0.0;
+            
+            float sb = sky_amount * uSunBrightness;
+            if (sb > 0.0)
+            {
+                mixed_color += filter_amount * sun_color * hit_sun_main  * mix(0.1, 1.0, sunvis) * sb;
+                mixed_color += filter_amount * sun_color * hit_sun_glare * mix(0.1, 1.0, sunvis) * sb * 0.001;
+            }
+            
+            if (uParticleHack)
+            {
+                float l = dot(base_color.rgb, vec3(1.0/3.0));
+                l *= 1.0 - underwater_distance / omw.far * 4.0;
+                l = pow(max(l, 0.0), 1.0/uGamma);
+                l = clamp(l*2.0-0.9, 0.0, 1.0);
+                base_color = mix(mixed_color, base_color, l);
+            }
+            else
+                base_color = mixed_color;
+            
+            //base_color = view_normal.xyz * 0.5 + 0.5;
+            base_color = pow(base_color, vec3(1.0/gamma));
+            
+            omw_FragColor.rgb = base_color;
+            
+            omw_FragColor.a = 0.0;
+            omw_FragColor.a += !interp_x ? 0.25 : 0.0;
+            omw_FragColor.a += !interp_y ? 0.5 : 0.0;
+        }
+        else
+        {
+            vec4 a = omw_GetLastShader(omw_TexCoord);
+            omw_FragColor.rgb = a.rgb;
+            
+            omw_FragColor.a = 0.0;
+        }
+        if (uDebugCastbuffer || uDebugInterpolation)
+            omw_FragColor.rgb = data_nearest.rgb;
+        if (!uDebugCastbuffer && uDebugInterpolation)
+            omw_FragColor.rgb = vec3(0.0);
+        if (uDebugInterpolation)
+        {
+            omw_FragColor.rgb *= 0.5;
+            omw_FragColor.b += interp_x ? 0.5 : 0.0;
+            omw_FragColor.g += interp_y ? 0.5 : 0.0;
+        }
+    }
+}
+
+fragment finish(rt1=RT_Temp) {
+    omw_In vec2 omw_TexCoord;
+    
+    vec4 median_at(vec2 coord, vec2 s)
+    {
+        vec2 res = omw.rcpResolution.xy;
+        
+        vec4 a = omw_Texture2D(RT_Temp, coord + vec2(res.x, res.y)*s);
+        vec4 b = omw_Texture2D(RT_Temp, coord);
+        vec4 c = omw_Texture2D(RT_Temp, coord - vec2(res.x, res.y)*s);
+        
+        float ad = dot(a.rgb, a.rgb);
+        float bd = dot(b.rgb, b.rgb);
+        float cd = dot(c.rgb, c.rgb);
+        
+        if ((ad < bd && bd < cd) || (ad >= bd && bd >= cd)) return b;
+        if ((ad < cd && cd < bd) || (ad >= cd && cd >= bd)) return c;
+        return a;
+    }
+    
+    void main()
+    {
+        vec2 res = omw.rcpResolution.xy;
+        
+        vec4 _c = omw_Texture2D(RT_Temp, omw_TexCoord);
+        if (_c.a > 0.0)
+        {
+            vec4 a = median_at(omw_TexCoord, vec2(1.75, -1.0));
+            vec4 b = median_at(omw_TexCoord, vec2(1.75, 1.0));
+            
+            omw_FragColor.rgb = (a+b).rgb * 0.5;
+        }
+        else
+            omw_FragColor.rgb = _c.rgb;
+    }
+}
+
+technique {
+    passes = ssr, main, finish;
+    description = "New water shader";
+    author = "wareya";
+    version = "0.1";
+    pass_normals = true;
+    glsl_version = 130;
+}
