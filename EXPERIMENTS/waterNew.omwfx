@@ -623,7 +623,7 @@ fragment main
         bool cond = hit_water;
         if (uDebugShinyWorld)
             cond = true;
-        if (underwater_distance != omw.far && cond)
+        if (cond)
         {
             float water_plane_fraction = abs(omw.eyePos.z - omw.waterHeight) / abs(omw.eyePos.z - world_pos.z);
             float water_distance = water_plane_fraction * underwater_distance;
