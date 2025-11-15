@@ -666,7 +666,7 @@ fragment ssr(target=RT_Info) {
         bool hit_water = cam_above != frag_above && omw.isWaterEnabled;
         bool cond = hit_water;
         omw_FragColor.a = -1.0;
-        if (underwater_distance != omw.far && cond)
+        if (cond)
         {
             float water_plane_fraction = abs(omw.eyePos.z - omw.waterHeight) / abs(omw.eyePos.z - world_pos.z);
             float water_distance = water_plane_fraction * underwater_distance;
@@ -730,7 +730,7 @@ fragment main(rt1=RT_Info, target=RT_Temp) {
         //data = omw_Texture2D(RT_Info, omw_TexCoord-res*0.5);
         //data = omw_Texture2D(RT_Info, omw_TexCoord);
         if (data_nearest.a == -1.0) cond = false;
-        if (underwater_distance != omw.far && cond)
+        if (cond)
         {
             vec4 data_nearest_a = omw_Texture2D(RT_Info, floor((omw_TexCoord + res*vec2(2.0,0.0))*omw.resolution*0.5)*res*2.0 + res);
             if (data_nearest_a.a == -1.0)
