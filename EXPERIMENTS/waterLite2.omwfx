@@ -643,25 +643,13 @@ fragment ssr(target=RT_Info) {
         
         vec2 res = omw.rcpResolution.xy;
         
-        vec3 base_color_raw = omw_GetLastShader(omw_TexCoord).rgb;
-        vec3 sun_color_raw = omw.sunColor.rgb;
+        vec2 coord = omw_TexCoord - res*0.5;
         
-        vec3 fog_color_raw = omw.fogColor.rgb;
-        //vec3 ambient_color_raw = omw.ambientColor.rgb;
-        vec3 ambient_color_raw = vec3(0.5);
+        float underwater_distance = omw_GetLinearDepth(coord);
         
-        vec3 base_color = pow(base_color_raw, vec3(gamma));
-        vec3 sun_color = pow(sun_color_raw, vec3(gamma));
-        vec3 fog_color = pow(fog_color_raw, vec3(gamma));
-        vec3 ambient_color = pow(ambient_color_raw, vec3(gamma));
-        
-        float underwater_distance = omw_GetLinearDepth(omw_TexCoord);
-        
-        vec3 world_pos = omw_GetWorldPosFromUV(omw_TexCoord);
+        vec3 world_pos = omw_GetWorldPosFromUV(coord);
         bool cam_above = omw.eyePos.z >= omw.waterHeight - 0.001 * underwater_distance;
         bool frag_above = world_pos.z >= omw.waterHeight - 0.001 * underwater_distance;
-        
-        float sunvis = omw.sunVis;
         
         bool hit_water = cam_above != frag_above && omw.isWaterEnabled;
         bool cond = hit_water;
@@ -671,7 +659,7 @@ fragment ssr(target=RT_Info) {
             float water_plane_fraction = abs(omw.eyePos.z - omw.waterHeight) / abs(omw.eyePos.z - world_pos.z);
             float water_distance = water_plane_fraction * underwater_distance;
             
-            vec3 view_normal = omw_GetNormals(omw_TexCoord).xyz;
+            vec3 view_normal = omw_GetNormals(coord).xyz;
             // normals from water shader are too strong, make them weaker
             vec3 view_up = (omw.viewMatrix * vec4(0.0, 0.0, 1.0, 0.0)).xyz;
             view_normal = normalize(mix(view_normal, view_up, uSmoothness));
@@ -686,8 +674,6 @@ fragment ssr(target=RT_Info) {
             
             omw_FragColor = vec4(march_data.coord, march_data.sky, march_data.color.a);
         }
-        //base_color = pow(base_color, vec3(1.0/gamma));
-        //omw_FragColor.rgb = base_color;
     }
 }
 
