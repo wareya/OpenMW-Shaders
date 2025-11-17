@@ -1,0 +1,274 @@
+uniform_float uRadius {
+    default = 0.15;
+    min = 0.01;
+    max = 1.0;
+    step = 0.01;
+    display_name = "Radius";
+    description = "Size of the effect.";
+}
+uniform_float uStrength {
+    default = 0.75;
+    min = 0.0;
+    max = 10.95;
+    step = 0.1;
+    display_name = "Strength";
+    description = "Strength of the effect.";
+}
+uniform_float uBrightness {
+    default = 10.0;
+    min = 1.0;
+    max = 50.0;
+    step = 1.0;
+    display_name = "Brightness";
+    description = "Brightness of the effect.";
+}
+uniform_float uDarkOffset {
+    default = 0.01;
+    min = 0.0;
+    max = 0.1;
+    step = 0.01;
+    display_name = "Darkness Offset";
+    description = "Increases the effect in dark areas.";
+}
+uniform_float uDistMod {
+    default = 10.0;
+    min = 1.0;
+    max = 20.0;
+    step = 1.0;
+    display_name = "Spill distance";
+    description = "Light spill distance modifier.";
+}
+uniform_int uPasses {
+    default = 4;
+    min = 1;
+    max = 16;
+    step = 1;
+    description = "Number of angles to check. Impacts performance.";
+    display_name = "Passes";
+}
+uniform_bool uDebug {
+    default = false;
+    description = "Display raw lighting overlay.";
+    display_name = "Debug";
+}
+uniform_bool uNoblur {
+    default = false;
+    description = "";
+    display_name = "No blur";
+}
+uniform_bool uDisable {
+    default = false;
+    description = "";
+    display_name = "Disable";
+}
+
+render_target RT_Info {
+    width_ratio = 0.5;
+    height_ratio = 0.5;
+    internal_format = rgba;
+    mipmaps = false;
+    wrap_s = clamp_to_edge;
+    wrap_t = clamp_to_edge;
+}
+render_target RT_InfoFiltered {
+    width_ratio = 0.5;
+    height_ratio = 0.5;
+    internal_format = rgba;
+    mipmaps = false;
+    wrap_s = clamp_to_edge;
+    wrap_t = clamp_to_edge;
+}
+render_target RT_InfoFiltered2 {
+    width_ratio = 0.5;
+    height_ratio = 0.5;
+    internal_format = rgba;
+    mipmaps = false;
+    wrap_s = clamp_to_edge;
+    wrap_t = clamp_to_edge;
+}
+
+shared {
+    float g = 2.2;
+    float g2 = (1.0 / 2.2);
+    
+    float get_depth(vec2 coord)
+    {
+        float depth = omw_GetLinearDepth(coord);
+        return depth;
+    }
+}
+
+fragment get_info(target=RT_Info) {
+    omw_In vec2 omw_TexCoord;
+    
+    //float time = fract(omw.simulationTime);
+    float hash(vec2 p)
+    {
+        //return fract(p.x * 3.5557133 + fract(p.y * 0.309269));
+        //return fract(p.x * 3.55 + fract(p.y * 0.31));
+        return fract(p.x * 3.55 + fract(p.y * 0.311));
+        //return fract((p.x * 0.06711056) * 52.9829189 + p.y * 0.309269);
+        //return fract(52.9829189 * fract(0.06711056*p.x + 0.00583715*p.y));
+    }
+    vec4 noise_ign(vec2 uv)
+    {
+        vec2 p = uv * omw.resolution;
+        //p += time * 5.5;
+        p.x = trunc(p.x);
+        p.y = trunc(p.y);
+        return vec4(hash(p), hash(p + 3.1141), hash(p + 5.2593), hash(p + 7.3815)) - 0.5;
+    }
+    
+    vec3 get_normal(vec2 coord)
+    {
+        vec3 view_normal = omw_GetNormals(coord).xyz;
+        return normalize(view_normal);
+    }
+    
+    vec4 get_info(vec2 coord, float depth, float pass, vec3 in_normal)
+    {
+        vec3 temp = normalize(vec3(in_normal.y, in_normal.x + 0.15111, -in_normal.z - 0.1));
+        vec3 tangent = cross(in_normal, temp);
+        vec3 bitangent = cross(in_normal, tangent);
+        tangent = cross(in_normal, bitangent);
+        
+        vec4 r = noise_ign(vec2(
+            coord.x * ((int(pass) & 1) == 0 ? 1.0 : -1.0) * 2.66 + pass*1.4390,
+            coord.y * 2.77 + pass*pass*2.621
+        ));
+                
+        vec3 perturbed_normal = mix(in_normal, tangent, r.x);
+        perturbed_normal = mix(perturbed_normal, bitangent, r.y);
+        vec3 raw_perturbed_normal = normalize(perturbed_normal);
+        perturbed_normal.xy = normalize(perturbed_normal.xy) * r.z * 3.0;
+        
+        vec2 offset = perturbed_normal.xy / (depth / 200.0) * uRadius;
+        
+        float hit_depth = get_depth(coord + offset);
+        vec3 hit_normal = get_normal(coord + offset);
+        
+        vec2 coordoffs = coord + offset;
+        
+        vec4 ret = vec4(pow(omw_GetLastShader(coordoffs).rgb, vec3(g)), 0.0);
+        
+        ret.a = 1.0;
+        //ret.a *= clamp(1.00 - max(0.0, dot(raw_perturbed_normal, hit_normal)), 0.01, 2.0) * 0.5;
+        //ret.a *= clamp(1.00 - max(0.0, dot(in_normal, hit_normal)), 0.01, 2.0);
+        ret.a = 0.1; // ?????
+        
+        float qd = abs(hit_depth - depth) * 10.0 / uDistMod + length(perturbed_normal.xy);
+        ret.a *= clamp(qd * 0.0003 + 1.0, 0.1, 1.0);
+        ret.a *= 1.0/(qd*qd*0.001 + 0.2);
+        
+        ret.rgb *= ret.a;
+        
+        if (coordoffs.y < 0.0 || coordoffs.y > 1.0) ret.a = 0.0;
+        if (coordoffs.x < 0.0 || coordoffs.x > 1.0) ret.a = 0.0;
+        
+        return ret;
+    }
+    
+    void main()
+    {
+        float depth = get_depth(omw_TexCoord);
+        vec3 normal = get_normal(omw_TexCoord);
+        
+        vec4 ref = vec4(0.0);
+        for(int i = 0; i < uPasses; i++)
+            ref += get_info(omw_TexCoord, depth, i, normal);
+        ref /= float(uPasses);
+        ref.a = clamp(ref.a * 10.0, 0.01, 1.0);
+        ref.rgb *= uBrightness * 20.0;
+        // clamp brightness boost based on distance
+        // (to avoid boosting fog in weird ghost-like ways)
+        float b = dot(ref.rgb, vec3(0.333 * (1.0 + depth * 0.001)));
+        if (b > 1.0)
+            ref.rgb /= b;
+            
+        omw_FragColor = ref;
+    }
+}
+
+fragment filter(rt1=RT_Info, target=RT_InfoFiltered) {
+    omw_In vec2 omw_TexCoord;
+    
+    void main()
+    {
+        vec2 px = omw.rcpResolution;
+        vec2 coord = omw_TexCoord + px;
+        vec4 a = omw_Texture2D(RT_Info, coord);
+        vec4 b = omw_Texture2D(RT_Info, coord + px * vec2(1.0, 0.0) * 3.33);
+        vec4 c = omw_Texture2D(RT_Info, coord - px * vec2(1.0, 0.0) * 3.33);
+        vec4 d = omw_Texture2D(RT_Info, coord + px * vec2(2.0, 0.0) * 3.33);
+        vec4 e = omw_Texture2D(RT_Info, coord - px * vec2(2.0, 0.0) * 3.33);
+        //vec4 f = omw_Texture2D(RT_Info, coord + px * vec2(3.0, 0.0) * 3.33);
+        vec4 g = omw_Texture2D(RT_Info, coord - px * vec2(3.0, 0.0) * 3.33);
+        
+        omw_FragColor = (a+b+c+d+e+g)*(1.0/6.0); // f missing intentionally for alignment
+        if (uNoblur) omw_FragColor = a;
+    }
+}
+
+fragment filter2(rt1=RT_InfoFiltered, target=RT_InfoFiltered2) {
+    omw_In vec2 omw_TexCoord;
+    
+    void main()
+    {
+        vec2 px = omw.rcpResolution;
+        vec2 coord = omw_TexCoord + px;
+        vec4 a = omw_Texture2D(RT_InfoFiltered, coord);
+        vec4 b = omw_Texture2D(RT_InfoFiltered, coord + px * vec2(0.0, 1.0) * 3.33);
+        vec4 c = omw_Texture2D(RT_InfoFiltered, coord - px * vec2(0.0, 1.0) * 3.33);
+        vec4 d = omw_Texture2D(RT_InfoFiltered, coord + px * vec2(0.0, 2.0) * 3.33);
+        vec4 e = omw_Texture2D(RT_InfoFiltered, coord - px * vec2(0.0, 2.0) * 3.33);
+        //vec4 f = omw_Texture2D(RT_InfoFiltered, coord + px * vec2(0.0, 3.0) * 3.33);
+        vec4 g = omw_Texture2D(RT_InfoFiltered, coord - px * vec2(0.0, 3.0) * 3.33);
+        
+        omw_FragColor = (a+b+c+d+e+g)*(1.0/6.0); // f missing intentionally for alignment
+        if (uNoblur) omw_FragColor = a;
+    }
+}
+
+fragment final(rt1=RT_InfoFiltered2) {
+    omw_In vec2 omw_TexCoord;
+    
+    void main()
+    {
+        vec4 ref = omw_Texture2D(RT_InfoFiltered2, omw_TexCoord);
+        float depth = get_depth(omw_TexCoord);
+
+        vec3 base_color = omw_GetLastShader(omw_TexCoord).rgb;
+        vec3 gamma_color = pow(base_color, vec3(g));
+        vec3 new_color = gamma_color + vec3(uDarkOffset);
+
+        new_color = new_color*(vec3(1.0)-new_color)*(vec3(0.5)-new_color)*4.0+new_color;
+        new_color *= ref.rgb;
+
+        float strength = uStrength * ref.a;
+        //strength *= abs(dot(ref.rgb, vec3(0.33)) - dot(gamma_color, vec3(0.33)));
+        strength *= clamp(depth * 0.005, 0.0, 1.0);
+        strength *= clamp(omw.far - depth, 0.0, 1.0);
+        strength *= clamp(( 1.5 - dot(base_color, vec3(0.7))), 0.0, 1.0);
+        strength *= clamp((       dot(base_color, vec3(2.0))), 0.0, 1.0);
+
+        //new_color.rgb = mix(gamma_color, new_color.rgb, strength);
+        new_color.rgb = gamma_color + new_color.rgb * strength;
+        
+        new_color.rgb = pow(new_color.rgb, vec3(g2));
+
+        if (uDebug)
+            new_color = mix(vec3(0.0), ref.rgb, ref.a);
+        omw_FragColor.rgb = new_color.rgb;
+        
+        if (uDisable) omw_FragColor.rgb = base_color;
+    }
+}
+
+technique {
+    passes = get_info, filter, filter2, final;
+    description = "Super ultra bad screen-space indirect lighting.";
+    author = "Wareya";
+    pass_normals = true;
+    version = "0.1";
+}
+
