@@ -76,51 +76,12 @@ render_target RT_InfoFiltered2 {
 
 shared {
     float g = 2.2;
-    float g2 = (1.0 / g);
+    float g2 = (1.0 / 2.2);
     
     float get_depth(vec2 coord)
     {
         float depth = omw_GetLinearDepth(coord);
         return depth;
-    }
-    vec4 avg5v4(vec4 a, vec4 b, vec4 c, vec4 d, vec4 e)
-    {
-        return (a+b+c+d+e)*0.2;
-    }
-    vec4 median5v4(vec4 a, vec4 b, vec4 c, vec4 d, vec4 e)
-    {
-        float a_v = dot(a.rgb, vec3(0.333)) * a.a;
-        float b_v = dot(b.rgb, vec3(0.333)) * b.a;
-        float c_v = dot(c.rgb, vec3(0.333)) * c.a;
-        float d_v = dot(d.rgb, vec3(0.333)) * d.a;
-        float e_v = dot(e.rgb, vec3(0.333)) * e.a;
-        
-        float eles[5] = {a_v, b_v, c_v, d_v, e_v};
-        for(int n = 0; n < 5; n++)
-        {
-            for(int i = 0; i < 5; i++)
-            {
-                if (eles[i] > eles[i + 1])
-                {
-                    float t = eles[i + 1];
-                    eles[i + 1] = eles[i];
-                    eles[i] = t;
-                }
-            }
-        }
-        
-        vec4 ret = vec4(0.0);
-        if (a_v == eles[2])
-            ret = a;
-        if (b_v == eles[2])
-            ret = b;
-        if (c_v == eles[2])
-            ret = c;
-        if (d_v == eles[2])
-            ret = d;
-        if (e_v == eles[2])
-            ret = e;
-        return ret;
     }
 }
 
@@ -174,7 +135,7 @@ fragment get_info(target=RT_Info) {
         vec3 hit_normal = get_normal(coord + offset);
         
         vec4 ret = vec4(pow(omw_GetLastShader(coord + offset).rgb, vec3(g)), 0.0);
-        //ret.a = clamp(1.05 - dot(in_normal, hit_normal), 0.01, 2.0) * 0.5;
+        
         ret.a = clamp(1.00 - max(0.0, dot(raw_perturbed_normal, hit_normal)), 0.01, 2.0) * 0.5;
         float qd = (hit_depth - depth);
         ret.a *= clamp(qd * 0.0003 + 1.0, 0.1, 1.0);
@@ -184,23 +145,14 @@ fragment get_info(target=RT_Info) {
         ret.a *= clamp(10000.0 * uDistMod / d2, 0.0, 1.0);
         ret.a *= clamp(omw.far - hit_depth, 0.0, 1.0);
         ret.rgb *= ret.a;
-        //ret.rgb = vec3(1.0);//vec3(1.05 - dot(in_normal, hit_normal));
-        //ret.rgb = vec3(1.0 - dot(in_normal, hit_normal));
-        //ret.rgb = vec3(1.0 - dot(raw_perturbed_normal, hit_normal));
-        //ret.a = 1.0;
-        //ret.rgb = in_normal * 0.5 + 0.5;
-        //ret.rgb = hit_normal * 0.5 + 0.5;
-        //ret.rgb = perturbed_normal * 0.5 + 0.5;
+        
         return ret;
     }
     
     void main()
     {
-        //vec3 base_color = omw_GetLastShader(omw_TexCoord).rgb;
         float depth = get_depth(omw_TexCoord);
         vec3 normal = get_normal(omw_TexCoord);
-        //vec3 gamma_color = pow(base_color, vec3(g));
-        //vec3 new_color = gamma_color;
         
         vec4 ref = vec4(0.0);
         for(int i = 0; i < uPasses; i++)
@@ -213,21 +165,8 @@ fragment get_info(target=RT_Info) {
         float b = dot(ref.rgb, vec3(0.333 * (1.0 + depth * 0.001)));
         if (b > 1.0)
             ref.rgb /= b;
-        //ref.rgb = mix(ref.rgb, vec3(0.5), 0.5);
-        //ref.rgb = ref.rgb + 0.5;
-        
-        //new_color = new_color*(vec3(1.0)-new_color)*(vec3(0.5)-new_color)*4.0+new_color;
-        //new_color *= ref.rgb;
-        
-        //strength *= 2.0;
-        //new_color.rgb = mix(gamma_color, new_color.rgb, strength);
-        
-        //new_color.rgb = pow(new_color.rgb, vec3(0.5));
-        
+            
         omw_FragColor = ref;
-        //omw_FragColor.rgb = pow(ref.rgb, vec3(0.5));
-        //omw_FragColor.rgb = vec3(ref.a);
-        //omw_FragColor.rgb = vec3(strength);
     }
 }
 
@@ -244,8 +183,6 @@ fragment filter(rt1=RT_Info, target=RT_InfoFiltered) {
         vec4 e = omw_Texture2D(RT_Info, omw_TexCoord - px * vec2(2.0, 0.0) * 2.7);
         vec4 f = omw_Texture2D(RT_Info, omw_TexCoord + px * vec2(3.0, 0.0) * 2.7);
         vec4 g = omw_Texture2D(RT_Info, omw_TexCoord - px * vec2(3.0, 0.0) * 2.7);
-        
-        //vec4 ret = avg5v4(a, b, c, d, e);
         
         omw_FragColor = (a+b+c+d+e+f+g)*(1.0/7.0);
         if (uNoblur) omw_FragColor = a;
@@ -265,8 +202,6 @@ fragment filter2(rt1=RT_InfoFiltered, target=RT_InfoFiltered2) {
         vec4 e = omw_Texture2D(RT_InfoFiltered, omw_TexCoord - px * vec2(0.0, 2.0) * 2.7);
         vec4 f = omw_Texture2D(RT_InfoFiltered, omw_TexCoord + px * vec2(0.0, 3.0) * 2.7);
         vec4 g = omw_Texture2D(RT_InfoFiltered, omw_TexCoord - px * vec2(0.0, 3.0) * 2.7);
-        
-        //vec4 ret = avg5v4(a, b, c, d, e);
         
         omw_FragColor = (a+b+c+d+e+f+g)*(1.0/7.0);
         if (uNoblur) omw_FragColor = a;
