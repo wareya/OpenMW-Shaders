@@ -22,6 +22,14 @@ uniform_float uBrightness {
     display_name = "Brightness";
     description = "Brightness of the effect.";
 }
+uniform_float uDarkOffset {
+    default = 0.01;
+    min = 0.0;
+    max = 0.1;
+    step = 0.01;
+    display_name = "Darkness Offset";
+    description = "Increases the effect in dark areas.";
+}
 uniform_float uDistMod {
     default = 10.0;
     min = 1.0;
@@ -47,6 +55,11 @@ uniform_bool uNoblur {
     default = false;
     description = "";
     display_name = "No blur";
+}
+uniform_bool uDisable {
+    default = false;
+    description = "";
+    display_name = "Disable";
 }
 
 render_target RT_Info {
@@ -220,7 +233,7 @@ fragment final(rt1=RT_InfoFiltered2) {
 
         vec3 base_color = omw_GetLastShader(omw_TexCoord).rgb;
         vec3 gamma_color = pow(base_color, vec3(g));
-        vec3 new_color = gamma_color;
+        vec3 new_color = gamma_color + vec3(uDarkOffset);
 
         new_color = new_color*(vec3(1.0)-new_color)*(vec3(0.5)-new_color)*4.0+new_color;
         new_color *= ref.rgb;
@@ -240,6 +253,8 @@ fragment final(rt1=RT_InfoFiltered2) {
         if (uDebug)
             new_color = mix(vec3(0.0), ref.rgb, ref.a);
         omw_FragColor.rgb = new_color.rgb;
+        
+        if (uDisable) omw_FragColor.rgb = base_color;
     }
 }
 
