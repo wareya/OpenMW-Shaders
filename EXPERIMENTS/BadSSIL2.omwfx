@@ -120,8 +120,8 @@ fragment get_info(target=RT_Info) {
         tangent = cross(in_normal, bitangent);
         
         vec4 r = noise_ign(vec2(
-            coord.x * ((int(pass) & 1) == 0 ? 1.0 : -1.0) * 2.66,
-            coord.y * 3.57 + pass*2.52
+            coord.x * ((int(pass) & 1) == 0 ? 1.0 : -1.0) * 2.66 + pass*1.4390,
+            coord.y * 2.77 + pass*pass*2.621
         ));
                 
         vec3 perturbed_normal = mix(in_normal, tangent, r.x);
@@ -176,15 +176,16 @@ fragment filter(rt1=RT_Info, target=RT_InfoFiltered) {
     void main()
     {
         vec2 px = omw.rcpResolution;
-        vec4 a = omw_Texture2D(RT_Info, omw_TexCoord);
-        vec4 b = omw_Texture2D(RT_Info, omw_TexCoord + px * vec2(1.0, 0.0) * 2.7);
-        vec4 c = omw_Texture2D(RT_Info, omw_TexCoord - px * vec2(1.0, 0.0) * 2.7);
-        vec4 d = omw_Texture2D(RT_Info, omw_TexCoord + px * vec2(2.0, 0.0) * 2.7);
-        vec4 e = omw_Texture2D(RT_Info, omw_TexCoord - px * vec2(2.0, 0.0) * 2.7);
-        vec4 f = omw_Texture2D(RT_Info, omw_TexCoord + px * vec2(3.0, 0.0) * 2.7);
-        vec4 g = omw_Texture2D(RT_Info, omw_TexCoord - px * vec2(3.0, 0.0) * 2.7);
+        vec2 coord = omw_TexCoord + px;
+        vec4 a = omw_Texture2D(RT_Info, coord);
+        vec4 b = omw_Texture2D(RT_Info, coord + px * vec2(1.0, 0.0) * 3.33);
+        vec4 c = omw_Texture2D(RT_Info, coord - px * vec2(1.0, 0.0) * 3.33);
+        vec4 d = omw_Texture2D(RT_Info, coord + px * vec2(2.0, 0.0) * 3.33);
+        vec4 e = omw_Texture2D(RT_Info, coord - px * vec2(2.0, 0.0) * 3.33);
+        //vec4 f = omw_Texture2D(RT_Info, coord + px * vec2(3.0, 0.0) * 3.33);
+        vec4 g = omw_Texture2D(RT_Info, coord - px * vec2(3.0, 0.0) * 3.33);
         
-        omw_FragColor = (a+b+c+d+e+f+g)*(1.0/7.0);
+        omw_FragColor = (a+b+c+d+e+g)*(1.0/6.0); // f missing intentionally for alignment
         if (uNoblur) omw_FragColor = a;
     }
 }
@@ -195,15 +196,16 @@ fragment filter2(rt1=RT_InfoFiltered, target=RT_InfoFiltered2) {
     void main()
     {
         vec2 px = omw.rcpResolution;
-        vec4 a = omw_Texture2D(RT_InfoFiltered, omw_TexCoord);
-        vec4 b = omw_Texture2D(RT_InfoFiltered, omw_TexCoord + px * vec2(0.0, 1.0) * 2.7);
-        vec4 c = omw_Texture2D(RT_InfoFiltered, omw_TexCoord - px * vec2(0.0, 1.0) * 2.7);
-        vec4 d = omw_Texture2D(RT_InfoFiltered, omw_TexCoord + px * vec2(0.0, 2.0) * 2.7);
-        vec4 e = omw_Texture2D(RT_InfoFiltered, omw_TexCoord - px * vec2(0.0, 2.0) * 2.7);
-        vec4 f = omw_Texture2D(RT_InfoFiltered, omw_TexCoord + px * vec2(0.0, 3.0) * 2.7);
-        vec4 g = omw_Texture2D(RT_InfoFiltered, omw_TexCoord - px * vec2(0.0, 3.0) * 2.7);
+        vec2 coord = omw_TexCoord + px;
+        vec4 a = omw_Texture2D(RT_InfoFiltered, coord);
+        vec4 b = omw_Texture2D(RT_InfoFiltered, coord + px * vec2(0.0, 1.0) * 3.33);
+        vec4 c = omw_Texture2D(RT_InfoFiltered, coord - px * vec2(0.0, 1.0) * 3.33);
+        vec4 d = omw_Texture2D(RT_InfoFiltered, coord + px * vec2(0.0, 2.0) * 3.33);
+        vec4 e = omw_Texture2D(RT_InfoFiltered, coord - px * vec2(0.0, 2.0) * 3.33);
+        //vec4 f = omw_Texture2D(RT_InfoFiltered, coord + px * vec2(0.0, 3.0) * 3.33);
+        vec4 g = omw_Texture2D(RT_InfoFiltered, coord - px * vec2(0.0, 3.0) * 3.33);
         
-        omw_FragColor = (a+b+c+d+e+f+g)*(1.0/7.0);
+        omw_FragColor = (a+b+c+d+e+g)*(1.0/6.0); // f missing intentionally for alignment
         if (uNoblur) omw_FragColor = a;
     }
 }
