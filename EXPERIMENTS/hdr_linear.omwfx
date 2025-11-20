@@ -1,0 +1,86 @@
+uniform_float neutral_point {
+    default = 0.335;
+    min = 0.1;
+    max = 1.0;
+    step = 0.005;
+    description = "Neutral point";
+}
+
+uniform_float sensitivity {
+    default = 0.11;
+    min = 0.0;
+    max = 1.0;
+    step = 0.01;
+    description = "Sensitivity";
+}
+
+uniform_float max_exposure {
+    default = 3.2;
+    min = 0.1;
+    max = 10.0;
+    step = 0.1;
+    description = "Maximum exposure";
+}
+
+uniform_float uThreshold {
+    default = 1.0;
+    min = 0.0;
+    max = 2.0;
+    step = 0.01;
+    description = "...";
+    display_name = "Desaturation Threshold";
+}
+
+uniform_float uRate {
+    default = 0.25;
+    min = 0.0;
+    max = 1.0;
+    step = 0.01;
+    description = "...";
+    display_name = "Desaturation Rate";
+}
+
+fragment tone {
+    vec3 to_linear(vec3 color)
+    {
+        return color * color;
+    }
+    vec3 to_srgb(vec3 color)
+    {
+        return sqrt(color);
+    }
+
+    varying vec2 omw_TexCoord;
+
+    vec4 HDR = vec4(omw_GetEyeAdaptation());
+    float exposure = clamp(mix(1.0, neutral_point / HDR.x, sensitivity), 0.5, max_exposure) * sqrt(HDR.y/HDR.x);
+    
+    void main()
+    {
+        vec3 c = omw_GetLastShader(omw_TexCoord).rgb;
+
+        c = to_linear(c);
+        
+        float e2 = exposure;
+        e2 *= e2;
+        vec3 g = e2 * c;
+        
+        float overshoot = max(0.0, max(max(g.r, g.g), g.b) - uThreshold) * uRate * 0.333;
+        overshoot = clamp(overshoot, 0.0, 1.0);
+        
+        vec3 gray = vec3((g.r + g.g + g.b) * 0.333);
+        g = mix(g, gray, overshoot);
+        
+        g = to_srgb(g);
+        
+        omw_FragColor = vec4(clamp(vec3(g), 0.0, 1.0), 1.0);
+    }
+}
+
+technique {
+    passes = tone;
+    description = "HDR, Tweaked";
+    author = "Hrnchamd, Wareya";
+    version = "1.01";
+    hdr = true;
+}
