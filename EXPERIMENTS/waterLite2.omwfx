@@ -38,6 +38,16 @@ uniform_float uGamma {
     description = "Gamma compression.";
     display_name = "Gamma";
 }
+uniform_bool uForceDistantOpacity {
+    default = false;
+    description = "...";
+    display_name = "Force Distant Opacity";
+}
+uniform_bool uDistantSeafloorHack {
+    default = true;
+    description = "...";
+    display_name = "Distant Seafloor Hack";
+}
 uniform_float uDistThresh {
     default = 10.0;
     min = 0.0;
@@ -108,7 +118,7 @@ uniform_float uSkyBlendEstimation {
     min = 0.0;
     max = 1.0;
     step = 0.05;
-    description = "Hack for people using sky blending. 0 to disable.";
+    description = "(broken on openmw's side) Hack for people using sky blending. 0 to disable.";
     display_name = "Sky Blending Hack";
 }
 uniform_float uSunRadius {
@@ -288,6 +298,8 @@ shared {
     }
     float fogSkyFadeContrib(float depth)
     {  
+        return 0.0;
+        
         if (uSkyBlendEstimation > 0.0)
         {
             //float fadeValue = clamp((omw.far - depth) / (omw.far - omw.far*0.5), 0.0, 1.0);
@@ -680,6 +692,27 @@ fragment ssr(target=RT_Info) {
 fragment main(rt1=RT_Info, target=RT_Temp) {
     omw_In vec2 omw_TexCoord;
     
+    
+    float omw_EstimateFogCoverageFromUVAndDepth(vec2 uv, float depth)
+    {
+        float linear_dist = omw_GetLinearDepth(uv);
+#if OMW_RADIAL_FOG
+        vec3 uvPos = omw_GetWorldPosFromUV(uv);
+        float dist = length(uvPos - omw.eyePos.xyz);
+#else
+        float dist = linear_dist;
+#endif
+        //dist *= depth/linear_dist;
+        dist = depth;
+#if OMW_EXPONENTIAL_FOG
+        float fogValue = 1.0 - exp(-2.0 * max(0.0, dist - omw.fogNear/2.0) / (omw.fogFar - omw.fogNear/2.0));
+#else
+        float fogValue = clamp((dist - omw.fogNear) / (omw.fogFar - omw.fogNear), 0.0, 1.0);
+#endif
+
+        return fogValue;
+    }
+
     void main()
     {
         float gamma = uGamma;
@@ -710,6 +743,28 @@ fragment main(rt1=RT_Info, target=RT_Temp) {
         bool interp_y = false;
         
         float underwater_distance = omw_GetLinearDepth(omw_TexCoord);
+        float water_plane_fraction = abs(omw.eyePos.z - omw.waterHeight) / abs(omw.eyePos.z - world_pos.z);
+        float water_distance = water_plane_fraction * underwater_distance;
+            
+        vec3 water_pos = mix(omw.eyePos.xyz, world_pos, water_distance/underwater_distance);
+            
+        if (uDistantSeafloorHack && cam_above && !frag_above && underwater_distance == omw.far)
+        {
+            vec3 v = world_pos - omw.eyePos.xyz;
+            v /= -v.z;
+            //vec3 floor_coord = water_pos + v * 2048.0;
+            vec3 floor_coord = water_pos + v * 2048.0;
+            float dist = length(floor_coord - omw.eyePos.xyz);
+            if (dist > omw.far) dist = omw.far;
+            float raw_fog_amount = omw_EstimateFogCoverageFromUVAndDepth(omw_TexCoord, dist);
+            //float raw_fog_amount = omw_EstimateFogCoverageFromUV(omw_TexCoord);
+            //base_color = vec3(0.25, 0.20, 0.15);
+            base_color = vec3(0.25, 0.20, 0.15);
+            //base_color = vec3(0.0);
+            base_color = mix(base_color, omw.fogColor.xyz, raw_fog_amount);
+            base_color = pow(base_color, vec3(gamma));
+        }
+        
         bool hit_water = cam_above != frag_above && omw.isWaterEnabled;
         bool cond = hit_water;
         vec4 data_nearest = omw_Texture2D(RT_Info, floor((omw_TexCoord)*omw.resolution*0.5)*res*2.0 + res);
@@ -757,9 +812,6 @@ fragment main(rt1=RT_Info, target=RT_Temp) {
             
             float filter_amount = 1.0;
             
-            float water_plane_fraction = abs(omw.eyePos.z - omw.waterHeight) / abs(omw.eyePos.z - world_pos.z);
-            float water_distance = water_plane_fraction * underwater_distance;
-            
             vec3 view_ray = normalize(world_pos - omw.eyePos.xyz);
             vec3 view_ray_view = (omw.viewMatrix * vec4(view_ray, 0.0)).xyz;
             
@@ -785,7 +837,8 @@ fragment main(rt1=RT_Info, target=RT_Temp) {
             float sun_incidence = dot(sun, reflected);
             float sun_angle = acos(sun_incidence);
             
-            float fog_amount = depthToFog(water_distance, normalize(view_ray_view));
+            //float fog_amount = depthToFog(water_distance, normalize(view_ray_view));
+            float fog_amount = omw_EstimateFogCoverageFromUV(omw_TexCoord);
             
             float hit_sun_main = getPBRSpecular(normal, -view_ray, sun, uSunRoughness);
             hit_sun_main = clamp(hit_sun_main, 0.0, 100.0);
@@ -803,17 +856,18 @@ fragment main(rt1=RT_Info, target=RT_Temp) {
             
             vec3 distortion_color = base_color;
             float water_deepness = abs(underwater_distance - water_distance);
-            if (uRefraction > 0.0)
+            if (uRefraction > 0.0 && underwater_distance != omw.far)
             {
                 // HACK: this should teeeeecccchhhnically be raymarching but it would be extra cost and the difference doesn't really matter
                 float water_deepness_f = clamp(water_deepness/100.0, 0.0, 1.0) * uRefraction * 500.0;
                 vec2 vn = view_normal.xy - view_up.xy;
                 vec2 distortion_coord = omw_TexCoord + water_deepness_f * vn * res;
-                float distortion_deepness = omw_GetLinearDepth(distortion_coord) - water_distance;
-                if(distortion_deepness > 0.0)
+                distortion_coord = ceil(distortion_coord / res) * res - res*0.5;
+                float distortion_depth = omw_GetLinearDepth(distortion_coord);
+                if(distortion_depth - water_distance > 0.0 && distortion_depth != omw.far)
                 {
                     distortion_color = pow(omw_GetLastShader(distortion_coord).rgb, vec3(uGamma));
-                    water_deepness = distortion_deepness;
+                    water_deepness = distortion_depth - water_distance;
                 }
                 
             }
@@ -832,7 +886,16 @@ fragment main(rt1=RT_Info, target=RT_Temp) {
             float water_fraction = pow(0.05, mix(gamma, 1.0, 0.5)) * (1.0 - fog_amount);
             float water_amount = distortion_amount * water_fraction;
             distortion_amount *= 1.0 - water_fraction;
-
+            
+            if (uForceDistantOpacity)
+            {
+                float h_dist = length(omw.eyePos.xy - world_pos.xy);
+                float force_opaque = 1.0 - clamp((1.0 - h_dist * (1.0 / (7168.0*1.0))) * 2.0, 0.0, 1.0);
+                force_opaque *= force_opaque;
+                reflected_amount = mix(reflected_amount, 1.0, force_opaque);
+                distortion_amount = mix(distortion_amount, 0.0, force_opaque);
+            }
+            
             if (uDemoHack > 0.5)
             {
                 float amount = uDemoHack*2.0-1.0;
