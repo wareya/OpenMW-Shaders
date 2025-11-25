@@ -937,10 +937,10 @@ fragment main(rt1=RT_Info, target=RT_Temp) {
             if (uParticleHack)
             {
                 float l = dot(base_color.rgb, vec3(1.0/3.0));
-                l *= 1.0 - underwater_distance / omw.far * 4.0;
+                //l *= 1.0 - underwater_distance / omw.far;
                 l = pow(max(l, 0.0), 1.0/uGamma);
                 l = clamp(l*2.0-0.9, 0.0, 1.0);
-                base_color = mix(mixed_color, base_color, l);
+                base_color = max(mixed_color, mix(mixed_color, base_color, l));
             }
             else
                 base_color = mixed_color;
