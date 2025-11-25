@@ -78,11 +78,14 @@ fragment tone {
         
         float Y = gray.r;
         float tmF = 1.0 / sqrt(Y*Y+1.0);
-        vec3 oldg = g;
-        if (uTonemap) g = g*tmF;
-        
-        float tmF_W = e2 / sqrt(e2*e2+1.0);
-        g /= tmF_W;
+        if (uTonemap)
+        {
+            vec3 oldg = g;
+            g = g*tmF;
+            float tmF_W = e2 / sqrt(e2*e2+1.0);
+            g /= tmF_W;
+            g = mix(oldg, g, clamp((e2-1.0)*2.0, 0.0, 1.0));
+        }
         
         g = to_srgb(g);
         
