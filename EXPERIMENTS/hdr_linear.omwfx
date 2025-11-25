@@ -84,7 +84,7 @@ fragment tone {
             g = g*tmF;
             float tmF_W = e2 / sqrt(e2*e2+1.0);
             g /= tmF_W;
-            g = mix(oldg, g, clamp((e2-1.0)*2.0, 0.0, 1.0));
+            g = mix(oldg, g, clamp((e2-1.0)*4.0, 0.0, 1.0));
         }
         
         g = to_srgb(g);
