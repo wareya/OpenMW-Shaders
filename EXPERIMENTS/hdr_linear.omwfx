@@ -39,6 +39,11 @@ uniform_float uRate {
     description = "...";
     display_name = "Desaturation Rate";
 }
+uniform_bool uTonemap {
+    default = true;
+    description = "...";
+    display_name = "Tonemap";
+}
 
 fragment tone {
     vec3 to_linear(vec3 color)
@@ -70,6 +75,9 @@ fragment tone {
         
         vec3 gray = vec3((g.r + g.g + g.b) * 0.333);
         g = mix(g, gray, overshoot);
+        
+        float tmF = 1.0 / (gray.r*gray.r*0.25 + 1.0);
+        if (uTonemap) g = mix(g, g*tmF, clamp((e2 - 1.0)*2.0, 0.0, 1.0));
         
         g = to_srgb(g);
         
