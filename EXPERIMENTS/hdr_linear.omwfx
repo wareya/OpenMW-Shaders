@@ -82,8 +82,7 @@ fragment tone {
         if (uTonemap) g = g*tmF;
         
         float tmF_W = e2 / sqrt(e2*e2+1.0);
-        g = mix(g, oldg, max(0.0, 1.0/(tmF_W+0.0001)-1.0));
-        
+        g /= tmF_W;
         
         g = to_srgb(g);
         
