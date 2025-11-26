@@ -114,11 +114,11 @@ uniform_float uDemoHack {
     display_name = "Demo Hack";
 }
 uniform_float uSkyBlendEstimation {
-    default = 0.5;
+    default = 0.2;
     min = 0.0;
     max = 1.0;
     step = 0.05;
-    description = "(broken on openmw's side) Hack for people using sky blending. 0 to disable.";
+    description = "Hack for people using sky blending. 0 to disable.";
     display_name = "Sky Blending Hack";
 }
 uniform_float uSunRadius {
@@ -298,8 +298,6 @@ shared {
     }
     float fogSkyFadeContrib(float depth)
     {  
-        return 0.0;
-        
         if (uSkyBlendEstimation > 0.0)
         {
             //float fadeValue = clamp((omw.far - depth) / (omw.far - omw.far*0.5), 0.0, 1.0);
@@ -757,6 +755,9 @@ fragment main(rt1=RT_Info, target=RT_Temp) {
             float dist = length(floor_coord - omw.eyePos.xyz);
             if (dist > omw.far) dist = omw.far;
             float raw_fog_amount = omw_EstimateFogCoverageFromUVAndDepth(omw_TexCoord, dist);
+            raw_fog_amount = mix(raw_fog_amount, 1.0, fogSkyFadeContrib(dist));
+            //raw_fog_amount = max(raw_fog_amount, fogSkyFadeContrib(dist));
+            //raw_fog_amount = fogSkyFadeContrib(dist);
             //float raw_fog_amount = omw_EstimateFogCoverageFromUV(omw_TexCoord);
             //base_color = vec3(0.25, 0.20, 0.15);
             base_color = vec3(0.25, 0.20, 0.15);
@@ -837,8 +838,8 @@ fragment main(rt1=RT_Info, target=RT_Temp) {
             float sun_incidence = dot(sun, reflected);
             float sun_angle = acos(sun_incidence);
             
-            //float fog_amount = depthToFog(water_distance, normalize(view_ray_view));
-            float fog_amount = omw_EstimateFogCoverageFromUV(omw_TexCoord);
+            float fog_amount = depthToFog(water_distance, normalize(view_ray_view));
+            //float fog_amount = omw_EstimateFogCoverageFromUV(omw_TexCoord);
             
             float hit_sun_main = getPBRSpecular(normal, -view_ray, sun, uSunRoughness);
             hit_sun_main = clamp(hit_sun_main, 0.0, 100.0);
@@ -848,7 +849,7 @@ fragment main(rt1=RT_Info, target=RT_Temp) {
             
             vec3 water_color = pow(vec3(0.5, 0.8, 1.0)*omw.fogColor.xyz, vec3(gamma));
             
-            vec3 sky_color = fog_color*vec3(0.8, 1.0, 1.2);
+            vec3 sky_color = mix(fog_color, fog_color*vec3(0.6, 1.0, 1.4), abs(normalize(view_ray).z));
             reflected_color.rgb = mix(sky_color, reflected_color.rgb, reflected_color.a);
             float reflected_amount = fresnelSchlick(water_incidence, 0.02, 1.0);
             
@@ -910,7 +911,7 @@ fragment main(rt1=RT_Info, target=RT_Temp) {
             }
             
             // mix fog in gamma-compressed light
-            water_color = pow(mix(pow(water_color, vec3(1.0/gamma)), fog_color_raw, fog_amount), vec3(gamma));
+            water_color = pow(mix(pow(water_color, vec3(1.0/gamma)), fog_color_raw, 0.0), vec3(gamma));
             
             // wet things are usually darker than dry things :^)
             vec3 wetness = vec3(pow(mix(cam_above ? 0.8 : 1.4, 1.0, fog_amount), gamma));
@@ -923,9 +924,7 @@ fragment main(rt1=RT_Info, target=RT_Temp) {
               + reflected_color.rgb * reflected_amount
               + water_color * water_amount;
 
-            // FOR DEBUGGING: set to 0.0 to view reflections 1:1
             filter_amount *= (1.0-fog_amount);
-            //mixed_color *= 0.0;
             
             float sb = sky_amount * uSunBrightness;
             if (sb > 0.0)
@@ -937,7 +936,7 @@ fragment main(rt1=RT_Info, target=RT_Temp) {
             if (uParticleHack)
             {
                 float l = dot(base_color.rgb, vec3(1.0/3.0));
-                //l *= 1.0 - underwater_distance / omw.far;
+                l *= min(1.0, (1.0 - underwater_distance / omw.far)*3.0 - 1.0);
                 l = pow(max(l, 0.0), 1.0/uGamma);
                 l = clamp(l*2.0-0.9, 0.0, 1.0);
                 base_color = max(mixed_color, mix(mixed_color, base_color, l));
