@@ -1,0 +1,398 @@
+uniform_float uRange {
+    default = 5;
+    min = 1;
+    max = 16.0;
+    step = 1;
+    description = "How many pixels the algorithm follows to try to detect an edge.";
+    display_name = "Range";
+}
+uniform_float uLumaLikenessThreshold {
+    default = 0.15;
+    min = 0.0;
+    max = 1.0;
+    step = 0.01;
+    description = "Threshold to use when comparing color values. Low value cause the image to become indiscriminately blurry, hurting performance and filter quality. 1.0 to disable colors-based AA.";
+    display_name = "Color Likeness Threshold";
+}
+uniform_bool uDoDiagonals {
+    default = true;
+    description = "Whether to attempt to process diagonals or not. If disabled, treats diagonals like horizontal/vertical edges. They will still be softened, but only for one or two pixels.";
+    display_name = "Process Diagonals";
+}
+uniform_bool uDoHopping {
+    default = true;
+    description = "Extend beyond normal range.";
+    display_name = "Pixel Hopping";
+}
+uniform_bool uKeepCornersSharp {
+    default = true;
+    description = "Extend beyond normal range.";
+    display_name = "Keep Corners Sharp";
+}
+uniform_bool uSkipAll {
+    default = false;
+    description = "Skip all processing. For debugging.";
+    display_name = "Skip All Processing";
+}
+uniform_float uGamma {
+    default = 1.5;
+    min = 0.5;
+    max = 4.0;
+    step = 0.05;
+    description = "Gamma compression to use when blending colors. 2.2 is (approximately) physically correct and avoids dark fringes when blending very different highly saturated colors. 1.0 gives what people usually expect from using image editors. The default is a compromise that looks good both in motion and if you squint at it.";
+    display_name = "Gamma";
+}
+
+shared {
+    vec4 powv(vec4 a, float x)
+    {
+        return pow(a, vec4(x));
+    }
+}
+
+fragment AA() {
+    // Copyright 2023 Wareya
+    // 
+    // Licensed under the Apache License, Version 2.0 (the "License");
+    // you may not use this file except in compliance with the License.
+    // You may obtain a copy of the License at
+    // 
+    //     http://www.apache.org/licenses/LICENSE-2.0
+    // 
+    // Unless required by applicable law or agreed to in writing, software
+    // distributed under the License is distributed on an "AS IS" BASIS,
+    // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    // See the License for the specific language governing permissions and
+    // limitations under the License.
+
+    #define NORMAL_LIKENESS_THRESHOLD 0.05
+    #define DEPTH_DISABLED_VALUE 0.0
+    #define NORMALS_DISABLED_VALUE 0.0
+    #define COLORS_DISABLED_VALUE 1.0
+    omw_In vec2 omw_TexCoord;
+    
+    vec3 getInfoColor(vec2 texcoord)
+    {
+        return omw_GetLastShader(texcoord).rgb;
+    }
+    float color_compare(vec2 texcoord, vec3 color_b)
+    {
+        vec3 color_a = getInfoColor(texcoord);
+        vec3 c = color_a - color_b;
+        float luma_diff = dot(c, c);
+        return luma_diff;
+    }
+    bool is_similar_color(float color_diff)
+    {
+        //return color_diff < pow(uLumaLikenessThreshold, uGamma);
+        return color_diff < uLumaLikenessThreshold;
+    }
+    float is_similar_color_f(float color_diff)
+    {
+        return is_similar_color(color_diff) ? 0.0 : 1.0;
+    }
+
+    struct sample_info {
+        bool a;
+        bool b;
+    };
+
+    sample_info sample_offset(vec2 texcoord_a, vec2 texcoord_b, int aa_mode, vec3 center_color)
+    {
+        // pick likeness comparison info depending on aa mode
+        sample_info info;
+        info.a = is_similar_color(color_compare(texcoord_a, center_color));
+        info.b = is_similar_color(color_compare(texcoord_b, center_color));
+        return info;
+    }
+
+    struct edge_info {
+        float left_like;
+        float right_like;
+        bool left_open;
+        bool right_open;
+    };
+
+    edge_info follow_edge(vec2 texcoord, mat2 to_px_2, int aa_mode, vec3 center_color, int range)
+    {
+        int left_like = 0;
+        int right_like = 0;
+        bool left_open = true;
+        bool right_open = true;
+        
+        vec2 b_plus = vec2(0.0, -1.0) * to_px_2;
+        vec2 a_plus_raw = vec2(1.0, 0.0) * to_px_2;
+        
+        vec2 left_last_coord = vec2(0.0, 0.0);
+        vec2 right_last_coord = vec2(0.0, 0.0);
+        
+        const int start = -1;
+        const int end = 1;
+        for(int xsign = start; xsign <= end; xsign += end-start)
+        {
+            vec2 a_plus = a_plus_raw*float(xsign);
+            
+            int left_plus  = int(xsign < 0);
+            int right_plus = int(xsign > 0);
+            int prev_offset = 0;
+            for(int x = 1; x <= range; x += 1)
+            {
+                // dithering factor for skipping
+                // world's worst RNG
+                int z_ = int(texcoord.x*31511.72) ^ (int(texcoord.y*12113.51)) + x*xsign;
+                z_ *= 77;
+                z_ ^= z_*6/5;
+                z_ = uDoHopping ? z_ : 0;
+                float z = float(z_&0xFF)/255.0;
+                
+                float jump_factor_lo = float(max(1, x-2+0));
+                float jump_factor_hi = float(max(1, x-2+1));
+                int offset = uDoHopping ? int(float(x)*mix(jump_factor_lo, jump_factor_hi, z)) : x;
+                
+                vec2 coord_a = texcoord + a_plus*float(offset);
+                vec2 coord_b = coord_a + b_plus;
+                
+                sample_info info = sample_offset(coord_a, coord_b, aa_mode, center_color);
+                // set closed ends appropriately if closed
+                left_open  = left_open  && (info.b || info.a || xsign ==  1);
+                right_open = right_open && (info.b || info.a || xsign == -1);
+                // break on end
+                if (info.b || !info.a)
+                {
+                    if (xsign < 0)
+                        left_last_coord = coord_a;
+                    else
+                        right_last_coord = coord_a;
+                    break;
+                }
+                // otherwise continue following edge
+                left_like  += left_plus * (offset - prev_offset);
+                right_like += right_plus * (offset - prev_offset);
+                
+                prev_offset = offset;
+            }
+        }
+        if (uKeepCornersSharp)
+        {
+            vec2 l_end_near = left_last_coord - a_plus_raw;
+            vec2 r_end_near = right_last_coord + a_plus_raw;
+            sample_info end_info_near = sample_offset(l_end_near, r_end_near, aa_mode, center_color);
+            
+            vec2 l_end_far = left_last_coord - b_plus;
+            vec2 r_end_far = right_last_coord - b_plus;
+            sample_info end_info = sample_offset(l_end_far, r_end_far, aa_mode, center_color);
+            if (right_last_coord.x == 0.0 && right_last_coord.y == 0.0)
+            {
+                end_info.b = true;
+                end_info_near.b = true;
+            }
+            if (left_last_coord.x == 0.0 && left_last_coord.y == 0.0)
+            {
+                end_info.a = true;
+                end_info_near.a = true;
+            }
+            if (!end_info.b && !end_info_near.b)
+                left_like = 0;
+            if (!end_info.a && !end_info_near.a)
+                right_like = 0;
+        }
+        
+        return edge_info(float(left_like), float(right_like), left_open, right_open);
+    }
+
+    void main()
+    {
+        vec2 texcoord = omw_TexCoord;
+        vec4 base_color = omw_GetLastShader(texcoord);
+        
+        vec2 res = omw.rcpResolution;
+        vec2 res_x = vec2(res.x, 0.0);
+        vec2 res_y = vec2(0.0, res.y);
+        
+        vec3 center_color = vec3(0.0);
+        
+        float top    = 0.0;
+        float bottom = 0.0;
+        float left   = 0.0;
+        float right  = 0.0;
+        
+        int aa_mode = 0; // 0 - none, 1 - depth, 2 - normal, 3 - color
+        if (aa_mode == 0 && uLumaLikenessThreshold != COLORS_DISABLED_VALUE)
+        {
+            center_color = base_color.rgb;
+            top    = color_compare(texcoord - res_y, center_color);
+            bottom = color_compare(texcoord + res_y, center_color);
+            left   = color_compare(texcoord - res_x, center_color);
+            right  = color_compare(texcoord + res_x, center_color);
+            
+            if (!is_similar_color(max(max(top, bottom), max(left, right))))
+                aa_mode = 3;
+        }
+        
+        // skip if no edges
+        if (aa_mode == 0 || uSkipAll)
+        {
+            omw_FragColor.rgb = base_color.rgb;
+        }
+        else
+        {
+            // edge-following AA
+            
+            float tl = 0.0;
+            float tr = 0.0;
+            float bl = 0.0;
+            float br = 0.0;
+            
+            float t = 0.0;
+            float b = 0.0;
+            float l = 0.0;
+            float r = 0.0;
+            
+            // evaluate similarity of nearby eight neighbors
+            if (aa_mode == 3)
+            {
+                tl = is_similar_color_f(color_compare(texcoord + vec2(-1.0, -1.0)*res, center_color));
+                tr = is_similar_color_f(color_compare(texcoord + vec2( 1.0, -1.0)*res, center_color));
+                bl = is_similar_color_f(color_compare(texcoord + vec2(-1.0,  1.0)*res, center_color));
+                br = is_similar_color_f(color_compare(texcoord + vec2( 1.0,  1.0)*res, center_color));
+                
+                t = is_similar_color_f(top   );
+                b = is_similar_color_f(bottom);
+                l = is_similar_color_f(left  );
+                r = is_similar_color_f(right );
+            }
+            
+            // compare eight neighbors
+            // (eight are needed because otherwise this pattern is ambiguous w/r/t up/down vs left/right:)
+            // (X X .)
+            // (X X .)
+            // (X . .)
+            // (because with only four neighbors, it looks like:)
+            // (? X ?)
+            // (X X .)
+            // (? . ?)
+            
+            float t_compare  = tl*0.25 + tr*0.25 + t*0.5;
+            float b_compare  = bl*0.25 + br*0.25 + b*0.5;
+            float l_compare  = tl*0.25 + bl*0.25 + l*0.5;
+            float r_compare  = tr*0.25 + br*0.25 + r*0.5;
+            
+            float tl_compare = uDoDiagonals ? t*0.5 + l*0.5 : 0.0;
+            float tr_compare = uDoDiagonals ? t*0.5 + r*0.5 : 0.0;
+            float bl_compare = uDoDiagonals ? b*0.5 + l*0.5 : 0.0;
+            float br_compare = uDoDiagonals ? b*0.5 + r*0.5 : 0.0;
+            
+            float comparisons[8] = {t_compare, b_compare, l_compare, r_compare, tl_compare, tr_compare, bl_compare, br_compare};
+            mat2 mats[8] = {mat2(vec2(res.x, 0.0), vec2(0.0, res.y)),
+                            mat2(vec2(res.x, 0.0), vec2(0.0, -res.y)),
+                            mat2(vec2(0.0, res.x), vec2(res.y, 0.0)),
+                            mat2(vec2(0.0, -res.x), vec2(res.y, 0.0)),
+                            mat2(vec2(-res.x,  res.x), vec2(res.y, 0.0)),
+                            mat2(vec2( res.x, -res.x), vec2(res.y, 0.0)),
+                            mat2(vec2(-res.x,  res.x), vec2(-res.y, 0.0)),
+                            mat2(vec2( res.x, -res.x), vec2(-res.y, 0.0))};
+            
+            // figure out what type of edge we're on and configure the edge search accordingly
+            
+            float max_axial_compare = max(max(t_compare, b_compare), max(l_compare, r_compare));
+            float max_diag_compare = max(max(tl_compare, bl_compare), max(tr_compare, br_compare));
+            float max_compare = max(max_axial_compare, max_diag_compare);
+            
+            // pick walking transform based on what direction the edge is going in
+            int found = -1;
+            if (uDoDiagonals)
+            {
+                for(int i = 0; i < 8; i++)
+                {
+                    if (comparisons[i] == max_compare)
+                    {
+                        if (found >= 0)
+                        {
+                            // If we found two equal candidates, run test which is ACTUALLY best
+                            // This is needed to disambituate this type of pattern:
+                            // (X X X)
+                            // (X . .)
+                            // (. . .)
+                            // as to whether it's diagonal or not.
+                            mat2 mat_a = mats[found];
+                            mat2 mat_b = mats[i];
+                            vec2 coord_a_1 = vec2( 2.0, -1.0) * mat_a + texcoord;
+                            vec2 coord_a_2 = vec2(-2.0, -1.0) * mat_a + texcoord;
+                            vec2 coord_b_1 = vec2( 2.0, -1.0) * mat_b + texcoord;
+                            vec2 coord_b_2 = vec2(-2.0, -1.0) * mat_b + texcoord;
+                            sample_info info_a = sample_offset(coord_a_1, coord_a_2, aa_mode, center_color);
+                            sample_info info_b = sample_offset(coord_b_1, coord_b_2, aa_mode, center_color);
+                            if (int(info_a.a) + int(info_a.b) > int(info_b.a) + int(info_b.b))
+                            {
+                                found = i;
+                                break;
+                            }
+                            else
+                                break;
+                            
+                            // always break to ensure that we don't run this test several times in worst-case scenarios
+                        }
+                        else
+                            found = i;
+                    }
+                }
+            }
+            else
+            {
+                for(int i = 0; i < 8 && found < 0; i++)
+                {
+                    if (comparisons[i] == max_compare)
+                        found = i;
+                }
+            }
+            mat2 to_px_2 = mats[found];
+            
+            // follow edge and find the ratio of like to unlike pixels to estimate
+            edge_info info = follow_edge(texcoord, to_px_2, aa_mode, center_color, int(uRange));
+            bool left_open = info.left_open;
+            bool right_open = info.right_open;
+            float left_like = info.left_like;
+            float right_like = info.right_like;
+            
+            // fix up data for convex bits
+            if(!left_open && !right_open)
+            {
+                left_open = left_like >= right_like;
+                right_open = !left_open;
+            }
+            // calculate the blending ratio based on the number of open and closed neighboring pixels
+            // this is the calculation that approximates proportionally where along the edge we are
+            float blend_amount = 0.0;
+            float pixel_range = left_like + right_like + 1.0;
+            if (left_open != right_open)
+                blend_amount = ((left_open ? left_like : right_like)+0.5)/(pixel_range) - 0.5;
+            blend_amount = clamp(blend_amount, 0.0, 1.0);
+            
+            vec4 next_color = omw_GetLastShader(texcoord + vec2(0.0, -1.0) * to_px_2);
+            
+            // blend neighboring edge pixel into center pixel based on ratio of low to high pixels
+            // this is the step that approximately reconstructs the original shape
+            vec3 gamma_a = vec3(uGamma);
+            vec3 gamma_b = vec3(1.0/uGamma);
+            vec3 color_a = pow(base_color.rgb, gamma_a);
+            vec3 color_b = pow(next_color.rgb, gamma_a);
+            vec3 blend_color = mix(color_a, color_b, blend_amount);
+            
+            omw_FragColor.rgb = pow(blend_color, gamma_b);
+            //vec3 n1 = getInfoNormal(texcoord);
+            //vec3 n2 = getInfoNormal(texcoord+res_y);
+            //ALBEDO = vec3(dot(n1, n2));
+            //ALBEDO = texture(normal_texture, texcoord).rgb;
+            //ALBEDO = vec3(1, 0, 0);
+        }
+        omw_FragColor.a = 1.0;
+    }
+}
+
+technique {
+    passes = AA;
+    description = "A very accurate post-processing anti-aliasing shader that follows edges and tries to reconstruct the underlying shape. Version 2.";
+    author = "Wareya";
+    version = "2.971";
+    pass_normals = true;
+}
