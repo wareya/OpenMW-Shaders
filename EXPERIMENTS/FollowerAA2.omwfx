@@ -7,7 +7,7 @@ uniform_float uRange {
     display_name = "Range";
 }
 uniform_float uLumaLikenessThreshold {
-    default = 0.15;
+    default = 0.07;
     min = 0.0;
     max = 1.0;
     step = 0.01;
@@ -282,15 +282,24 @@ fragment AA() {
             float bl_compare = uDoDiagonals ? b*0.5 + l*0.5 : 0.0;
             float br_compare = uDoDiagonals ? b*0.5 + r*0.5 : 0.0;
             
-            float comparisons[8] = {t_compare, b_compare, l_compare, r_compare, tl_compare, tr_compare, bl_compare, br_compare};
-            mat2 mats[8] = {mat2(vec2(res.x, 0.0), vec2(0.0, res.y)),
-                            mat2(vec2(res.x, 0.0), vec2(0.0, -res.y)),
-                            mat2(vec2(0.0, res.x), vec2(res.y, 0.0)),
-                            mat2(vec2(0.0, -res.x), vec2(res.y, 0.0)),
-                            mat2(vec2(-res.x,  res.x), vec2(res.y, 0.0)),
-                            mat2(vec2( res.x, -res.x), vec2(res.y, 0.0)),
-                            mat2(vec2(-res.x,  res.x), vec2(-res.y, 0.0)),
-                            mat2(vec2( res.x, -res.x), vec2(-res.y, 0.0))};
+            float comparisons[8];
+            comparisons[0] = t_compare;
+            comparisons[1] = b_compare;
+            comparisons[2] = l_compare;
+            comparisons[3] = r_compare;
+            comparisons[4] = tl_compare;
+            comparisons[5] = tr_compare;
+            comparisons[6] = bl_compare;
+            comparisons[7] = br_compare;
+            mat2 mats[8];
+            mats[0] = mat2(vec2(res.x, 0.0), vec2(0.0, res.y));
+            mats[1] = mat2(vec2(res.x, 0.0), vec2(0.0, -res.y));
+            mats[2] = mat2(vec2(0.0, res.x), vec2(res.y, 0.0));
+            mats[3] = mat2(vec2(0.0, -res.x), vec2(res.y, 0.0));
+            mats[4] = mat2(vec2(-res.x,  res.x), vec2(res.y, 0.0));
+            mats[5] = mat2(vec2( res.x, -res.x), vec2(res.y, 0.0));
+            mats[6] = mat2(vec2(-res.x,  res.x), vec2(-res.y, 0.0));
+            mats[7] = mat2(vec2( res.x, -res.x), vec2(-res.y, 0.0));
             
             // figure out what type of edge we're on and configure the edge search accordingly
             
