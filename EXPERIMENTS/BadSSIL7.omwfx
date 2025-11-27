@@ -1,0 +1,529 @@
+uniform_float uRadius {
+    default = 0.25;
+    min = 0.01;
+    max = 1.0;
+    step = 0.01;
+    display_name = "Radius";
+    description = "Size of the effect.";
+}
+uniform_float uStrength {
+    default = 0.75;
+    min = 0.0;
+    max = 10.95;
+    step = 0.1;
+    display_name = "Strength";
+    description = "Strength of the effect.";
+}
+uniform_float uBrightness {
+    default = 10.0;
+    min = 1.0;
+    max = 50.0;
+    step = 1.0;
+    display_name = "Brightness";
+    description = "Brightness of the effect.";
+}
+uniform_float uDarkOffset {
+    default = 0.02;
+    min = 0.0;
+    max = 0.1;
+    step = 0.01;
+    display_name = "Darkness Offset";
+    description = "Increases the effect in dark areas.";
+}
+uniform_float uDistMod {
+    default = 200.0;
+    min = 10.0;
+    max = 2000.0;
+    step = 10.0;
+    display_name = "Spill distance";
+    description = "Light spill distance modifier.";
+}
+uniform_int uPasses {
+    default = 4;
+    min = 1;
+    max = 16;
+    step = 1;
+    description = "Number of angles to check. Impacts performance.";
+    display_name = "Passes";
+}
+uniform_float uRoughness {
+    default = 1.0;
+    min = 0.0;
+    max = 20.0;
+    step = 0.1;
+    display_name = "Roughness";
+    description = "...";
+}
+uniform_float uFogRemoval {
+    default = 1.0;
+    min = 0.0;
+    max = 4.0;
+    step = 0.05;
+    display_name = "Fog Hack";
+    description = "...";
+}
+uniform_bool uDebug {
+    default = false;
+    description = "Display raw lighting overlay.";
+    display_name = "Debug";
+}
+uniform_bool uLateBlur {
+    default = false;
+    description = "...";
+    display_name = "Late Blur";
+}
+uniform_bool uDepthHack {
+    default = true;
+    description = "...";
+    display_name = "Depth Hack";
+}
+uniform_bool uGaussianer {
+    default = false;
+    description = "...";
+    display_name = "Gaussianer";
+}
+uniform_bool uGaussianerNew {
+    default = true;
+    description = "...";
+    display_name = "Gaussianer (new)";
+}
+uniform_bool uUseVertexNormals {
+    default = false;
+    description = "Use vertex normals, as opposed to geometry normals.";
+    display_name = "Use vertex normals";
+}
+uniform_bool uNoblur {
+    default = false;
+    description = "";
+    display_name = "No blur";
+}
+uniform_bool uDisable {
+    default = false;
+    description = "";
+    display_name = "Disable";
+}
+
+render_target RT_Info {
+    width_ratio = 0.5;
+    height_ratio = 0.5;
+    internal_format = rgba16f;
+    source_type = float;
+    mipmaps = false;
+    wrap_s = clamp_to_edge;
+    wrap_t = clamp_to_edge;
+}
+render_target RT_InfoFiltered {
+    width_ratio = 0.5;
+    height_ratio = 0.5;
+    internal_format = rgba16f;
+    source_type = float;
+    mipmaps = false;
+    wrap_s = clamp_to_edge;
+    wrap_t = clamp_to_edge;
+}
+render_target RT_InfoFiltered2 {
+    width_ratio = 0.5;
+    height_ratio = 0.5;
+    internal_format = rgba16f;
+    source_type = float;
+    mipmaps = false;
+    wrap_s = clamp_to_edge;
+    wrap_t = clamp_to_edge;
+}
+
+shared {
+    float g = 2.2;
+    float g2 = (1.0 / 2.2);
+    
+    //float time = fract(omw.simulationTime);
+    float hash_inner(vec2 p)
+    {
+        //return fract((p.x*1.11 + p.y*1.33) * (2.0 +  fract(p.x*2.555 + p.y*2.4441)) + fract(p.x*p.y*1.7));
+        //return fract((p.x*1.11 + p.y*1.33) * (2.0 +  fract(p.x*2.555 + p.y*2.4441)) + fract(p.x*p.y*1.7));
+        //return fract((p.x*2.31 - p.y*1.45) * (1.1 + fract(p.x*0.52 - p.y*0.82)));
+        return fract((p.x*2.31 - p.y*1.37) * (1.1 + fract(p.x*0.52 - p.y*0.82)));
+        //return fract((p.x*p.y)*0.007);
+    }
+    float hash(vec2 p)
+    {
+        return fract((p.x*2.31 - p.y*1.37) * (1.1 + fract(p.x*0.52 - p.y*0.82)));
+        //return fract(sin(p.x + fract(p.y*0.15211431)) * 158.545);
+        //return fract(fract(fract(p.x*0.381538 + fract(p.y*0.15211431)) * 158.545) * 3.1543);
+        //return fract(fract(fract(p.x*0.381538 * (1.0 +  fract(p.y*0.15211431))) * 158.545) * 3.1543);
+        //return fract(fract(p.x*0.381538 * (1.0 +  fract(p.y*0.15211431))) * 158.545);
+        //return fract(p.x*11.381538 * (1.0 +  fract(p.y*0.15211431)) + fract(p.y*9.15211431));
+        //return (hash_inner(p) - hash_inner(p + vec2(1.0))) * 0.5 + 0.5;
+        //return fract(p.x * 5.53 + fract(p.y * 2.66));
+        //return fract(p.x * 5.253 + fract(p.y * 2.266));
+        //return fract(p.x * 5.2765 + fract(p.y * 1.4665));
+        //return fract(p.x * 5.2847 + fract(p.y * 1.4661));
+        //return fract(p.x * 5.276 + fract(p.y * 1.468) * (1.0 + fract(p.x * 0.001) * 0.5));
+        //return fract(p.x * 3.55 + fract(p.y * 0.31));
+        //return fract((fract(sin(dot(p.xy ,vec2(12.9898, 18.233))) * 3758.5453))*2134.51);
+        //return fract((fract(sin(dot(p.xy ,vec2(12.9898, 18.233))) * 43758.5453))*134.5195391);
+        //return fract((fract(sin(dot(p.xy ,vec2(12.9898, 18.233121))) * 43758.5453))*134.5195391);
+        //return fract(p.x * 3.5557133 + fract(p.y * 0.309269));
+        //return fract(p.x * 3.55 + fract(p.y * 0.311));
+        //return fract((p.x * 0.06711056) * 52.9829189 + p.y * 0.309269);
+        //return fract(52.9829189 * fract(0.06711056*p.x + 0.00583715*p.y));
+    }
+    vec4 noise(vec2 uv)
+    {
+        vec2 p = uv * omw.resolution;
+        //p += time * 5.5;
+        p.x = trunc(p.x);
+        p.y = trunc(p.y);
+        //return vec4(hash(p), hash(p + 3.1141), hash(p + 5.2593), hash(p + 7.3815)) - 0.5;
+        return vec4(
+            hash(p),
+            hash(p + vec2(21.0, 24.0)),
+            hash(p + vec2(55.0, 52.0)),
+            hash(p + vec2(78.0, 73.0))
+        );
+    }
+    
+    float get_depth(vec2 coord)
+    {
+        float depth = omw_GetLinearDepth(coord);
+        return depth;
+    }
+    vec3 get_normal(vec2 coord)
+    {
+        vec3 view_normal = omw_GetNormals(coord).xyz;
+        return normalize(view_normal);
+    }
+    vec3 get_geonormal(vec2 coord)
+    {
+        if (uUseVertexNormals)
+            return get_normal(coord);
+        
+        float d = omw_GetLinearDepth(coord);
+        float x_d = omw_GetLinearDepth(coord + omw.rcpResolution.xy*vec2(1.0,0.0));
+        float y_d = omw_GetLinearDepth(coord + omw.rcpResolution.xy*vec2(0.0,1.0));
+        
+        vec4 c = omw.invProjectionMatrix * vec4(((coord)*2.0 - 1.0)*d, d, d);
+        vec4 x = omw.invProjectionMatrix * vec4(((coord + omw.rcpResolution.xy*vec2(1.0,0.0))*2.0 - 1.0)*x_d, x_d, x_d);
+        vec4 y = omw.invProjectionMatrix * vec4(((coord + omw.rcpResolution.xy*vec2(0.0,1.0))*2.0 - 1.0)*y_d, y_d, y_d);
+        
+        vec4 dxv = (x-c);
+        vec4 dyv = (y-c);
+        
+        vec3 n = cross(dxv.xyz, dyv.xyz);
+        return normalize(n);
+    }
+}
+
+fragment get_info(target=RT_Info) {
+    omw_In vec2 omw_TexCoord;
+    
+    
+    vec4 get_info(vec2 coord, float depth, float pass, vec3 in_normal)
+    {
+        vec3 world_pos = omw_GetWorldPosFromUV(coord);
+        
+        in_normal = normalize(in_normal);
+        vec3 tangent = cross(in_normal, normalize(vec3(0.91432, 0.87531, -0.21893)));
+        vec3 bitangent = cross(in_normal, tangent);
+        
+        vec4 r = noise(vec2(
+            coord.x + pass*1.43,
+            coord.y + pass*pass*1.621
+        ));
+        
+        //if (r.r > 0.99999) r = vec4(0.5);
+        
+        if (uGaussianerNew)
+        {
+            r = r * 2.0 - 1.0;
+            vec4 r2 = r*r;
+            vec4 r4 = r2*r2;
+            vec4 r8 = r4*r4;
+            vec4 r16 = r8*r8;
+            r = r*r8 + r;
+            r *= 0.5;
+            r = r * 0.5 + 0.5;
+        }
+        else if (uGaussianer)
+        {
+            // need to be a bit more like the normal distribution
+            r += noise(vec2(
+                coord.x * ((int(pass) & 1) == 0 ? 1.0 : -1.0) * 2.66 + pass*1.4390,
+                coord.y * 2.77 + pass*pass*2.621
+            ) + vec2(0.85132));
+            r += noise(vec2(
+                coord.x * ((int(pass) & 1) == 0 ? 1.0 : -1.0) * 2.66 + pass*1.4390,
+                coord.y * 2.77 + pass*pass*2.621
+            ) + vec2(0.235132));
+            r += noise(vec2(
+                coord.x * ((int(pass) & 1) == 0 ? 1.0 : -1.0) * 2.66 + pass*1.4390,
+                coord.y * 2.77 + pass*pass*2.621
+            ) + vec2(0.5123));
+            r *= 0.25;
+        }
+        
+        mat3 NTB = mat3(in_normal, tangent, bitangent);
+        r.xyz = vec3(r.x, r.y - 0.5, r.z - 0.5);
+        r.yz *= uRoughness * uRoughness * 2.0;
+        
+        vec3 perturbed_normal = NTB * r.xyz;
+        perturbed_normal = normalize(perturbed_normal);
+        
+        //vec2 offset = perturbed_normal.xy / (depth / 200.0) * uRadius;
+        
+        vec2 offset = perturbed_normal.xy * mix(0.01, uRadius, r.w*r.w*3.0);
+        offset *= min(1.0, 400.0 / (depth));
+        //offset *= 0.1;
+        
+        //vec2 offset = perturbed_normal.xy * uRadius;
+        offset.y *= omw.resolution.x / omw.resolution.y;
+        
+        
+        vec2 coordoffs = coord + offset;
+        
+        vec3 hit_world_pos = omw_GetWorldPosFromUV(coordoffs);
+        
+        float hit_depth = get_depth(coordoffs);
+        vec3 hit_normal = get_geonormal(coordoffs);
+        
+        vec4 ret = vec4(omw_GetLastShader(coordoffs).rgb, 0.0);
+        
+        ret.a = 1.0;
+        
+        // physically correct
+        //ret.a = max(0.0, dot(-in_normal, normalize(hit_normal-in_normal)));
+        // approximation of the above that is more stable in physically implausible sitautions
+        //ret.a = max(0.0, dot(-in_normal, hit_normal) * 0.5 + 0.5);
+        // alternative
+        ret.a = max(0.0, dot(-perturbed_normal, hit_normal) * 4.0);
+        
+        // fade out at distance
+        //float distF = 1.0 / (uDistMod*10.0);
+        //distF *= (depth+hit_depth) * (1.0/160.0);
+        //float qd = length(hit_depth - depth) * distF;
+        //ret.a *= 0.1;
+        //ret.a *= 1.0/(qd*qd*0.1 + 0.2);
+        vec3 diff = hit_world_pos - world_pos;
+        float qd = length(diff);
+        if (qd > uDistMod) qd = 100000000.0;
+        ret.a *= 1.0 / (qd * 0.1 + 0.2);
+        ret.a = max(ret.a, 0.0);
+        
+        float fog = omw_EstimateFogCoverageFromUV(coordoffs);
+        //ret.rgb -= fog * omw.fogColor.rgb * uFogRemoval; // this doesn't need to be accurate
+        ret.rgb = mix(ret.rgb, omw.fogColor.rgb, (1.0 - 1.0/(1.0 - fog + 0.001)) * uFogRemoval);
+        //ret.rgb = vec3(fog);
+        
+        ret.a *= (1.0 - fog);
+        
+        //ret.a = 0.03;
+        
+        if (coordoffs.y < 0.0 || coordoffs.y > 1.0) ret.a = 0.0;
+        if (coordoffs.x < 0.0 || coordoffs.x > 1.0) ret.a = 0.0;
+        
+        ret.a *= 4.0;
+        ret.rgb *= ret.a;
+        
+        //ret.rgb *= sqrt(ret.a);
+        //ret.rgb *= 0.25;
+        ret.rgb = max(ret.rgb, vec3(0.0));
+        
+        ret.rgb = pow(ret.rgb, vec3(g));
+        //ret.rgb *= 0.02;
+        
+        //ret.rgb = hit_normal * 0.5 + 0.5;
+        //ret.rgb = in_normal * 0.5 + 0.5;
+        //ret.rgb = vec3(dot(hit_normal, -in_normal) * 0.5 + 0.5);
+        //ret.a = 1.0;
+        
+        return ret;
+    }
+    
+    void main()
+    {
+        float depth = get_depth(omw_TexCoord);
+        vec3 normal = get_geonormal(omw_TexCoord);
+        
+        vec4 ref = vec4(0.0);
+        float q = 0.0;
+        for(int i = 0; i < uPasses; i++)
+        {
+            vec4 c = get_info(omw_TexCoord, depth, i, normal);
+            ref += c;
+            q += c.a;
+        }
+        ref /= (q + 0.0001);
+        //ref.a = clamp(ref.a * 10.0, 0.01, 1.0);
+        
+        ref.rgb *= uBrightness * 20.0;
+        
+        if (!uLateBlur)
+            ref.rgb = pow(ref.rgb * 2.0, vec3(g2));
+        
+        // clamp brightness boost based on distance
+        // (to avoid boosting fog in weird ghost-like ways)
+        /*
+        float b = dot(ref.rgb, vec3(0.333 * (1.0 + depth * 0.002)));
+        if (b > 1.0)
+            ref.rgb /= b;
+        */
+        
+        //if (q == 0.0)
+        if (q < 0.0001)
+            ref.a = -omw.far;
+        else
+            ref.a = sqrt(depth);
+        
+        omw_FragColor = ref;
+    }
+}
+
+fragment filter(rt1=RT_Info, target=RT_InfoFiltered) {
+    omw_In vec2 omw_TexCoord;
+    
+    void main()
+    {
+        vec2 px = omw.rcpResolution;
+        //vec2 coord = omw_TexCoord;// + px;
+        vec2 coord = omw_TexCoord;
+        
+        vec4 c[7];
+        c[0] = omw_Texture2D(RT_Info, coord);
+        c[1] = omw_Texture2D(RT_Info, coord + px * vec2(1.0, -1.0) * 4.0);
+        c[2] = omw_Texture2D(RT_Info, coord - px * vec2(1.0, -1.0) * 4.0);
+        c[3] = omw_Texture2D(RT_Info, coord + px * vec2(2.0, -2.0) * 4.0);
+        c[4] = omw_Texture2D(RT_Info, coord - px * vec2(2.0, -2.0) * 4.0);
+        c[5] = omw_Texture2D(RT_Info, coord + px * vec2(3.0, -3.0) * 4.0);
+        c[6] = omw_Texture2D(RT_Info, coord - px * vec2(3.0, -3.0) * 4.0);
+        
+        vec4 val;
+        float ref = 0.001;
+        for (int i = 0; i < 7; i++)
+        {
+            if (c[i].a > 0.0)
+            {
+                val += c[i];
+                ref += 1.0;
+            }
+            else
+                val += c[i] * vec4(1.0, 1.0, 1.0, 0.0);
+        }
+        
+        omw_FragColor = val * vec4(vec3(1.0/7.0), 1.0/ref);
+        if (uNoblur) omw_FragColor = c[0];
+    }
+}
+
+fragment filter2(rt1=RT_InfoFiltered, target=RT_InfoFiltered2) {
+    omw_In vec2 omw_TexCoord;
+    
+    void main()
+    {
+        vec2 px = omw.rcpResolution;
+        //vec2 coord = omw_TexCoord;// + px;
+        vec2 coord = omw_TexCoord;
+        
+        vec4 c[7];
+        c[0] = omw_Texture2D(RT_InfoFiltered, coord);
+        c[1] = omw_Texture2D(RT_InfoFiltered, coord + px * vec2(1.0, 1.0) * 4.0);
+        c[2] = omw_Texture2D(RT_InfoFiltered, coord - px * vec2(1.0, 1.0) * 4.0);
+        c[3] = omw_Texture2D(RT_InfoFiltered, coord + px * vec2(2.0, 2.0) * 4.0);
+        c[4] = omw_Texture2D(RT_InfoFiltered, coord - px * vec2(2.0, 2.0) * 4.0);
+        c[5] = omw_Texture2D(RT_InfoFiltered, coord + px * vec2(3.0, 3.0) * 4.0);
+        c[6] = omw_Texture2D(RT_InfoFiltered, coord - px * vec2(3.0, 3.0) * 4.0);
+        
+        vec4 val;
+        float ref = 0.001;
+        for (int i = 0; i < 7; i++)
+        {
+            if (c[i].a > 0.0)
+            {
+                val += c[i];
+                ref += 1.0;
+            }
+            else
+                val += c[i] * vec4(1.0, 1.0, 1.0, 0.0);
+        }
+        
+        omw_FragColor = val * vec4(vec3(1.0/7.0), 1.0/ref);
+        if (uNoblur) omw_FragColor = c[0];
+    }
+}
+
+fragment final(rt1=RT_InfoFiltered2) {
+    omw_In vec2 omw_TexCoord;
+    
+    void main()
+    {
+        vec4 ref  = omw_Texture2D(RT_InfoFiltered2, omw_TexCoord);
+        float q = 2.3;
+        float j = 0.7;
+        vec4 ref2 = omw_Texture2D(RT_InfoFiltered2, omw_TexCoord + omw.rcpResolution * vec2(q, j));
+        vec4 ref3 = omw_Texture2D(RT_InfoFiltered2, omw_TexCoord - omw.rcpResolution * vec2(q, j));
+        vec4 ref4 = omw_Texture2D(RT_InfoFiltered2, omw_TexCoord + omw.rcpResolution * vec2(-j, q));
+        vec4 ref5 = omw_Texture2D(RT_InfoFiltered2, omw_TexCoord - omw.rcpResolution * vec2(-j, q));
+        ref = (ref+ref2+ref3+ref4+ref5)*0.2;
+        
+        if (uNoblur) ref = omw_Texture2D(RT_InfoFiltered2, omw_TexCoord - omw.rcpResolution);
+        
+        if (uLateBlur)
+            ref.rgb = pow(ref.rgb, vec3(g2));
+        
+        //ref.rgb = pow(ref.rgb, vec3(g));
+        
+        float depth = get_depth(omw_TexCoord);
+
+        vec3 base_color = omw_GetLastShader(omw_TexCoord).rgb;
+        //vec3 new_color = base_color + vec3(uDarkOffset*0.25);
+        //vec3 gamma_color = pow(base_color, vec3(g));
+        vec3 gamma_color = base_color;
+        //vec3 new_color = gamma_color + vec3(uDarkOffset*0.25);
+        vec3 new_color = gamma_color + vec3(uDarkOffset*0.25);
+        
+        //float df = max(0.0, 1.0 - abs(depth - ref.a*ref.a) * (1.0/70.0));
+        float df = max(0.0, 1.0 - abs(sqrt(depth) - ref.a) * (1.0/4.0));
+        //df = sqrt(df);
+        if (uDepthHack)
+            ref.rgb *= sqrt(df);
+
+        new_color = new_color*(vec3(1.0)-new_color)*(vec3(0.5)-new_color)*4.0+new_color;
+        float v = dot(new_color, vec3(0.333));
+        if (v > 0.1) new_color *= 0.1/v;
+        new_color *= ref.rgb;
+
+        float strength = uStrength;
+        
+        //strength *= abs(dot(ref.rgb, vec3(0.33)) - dot(base_color, vec3(0.33)));
+        strength *= clamp(depth * 0.005, 0.0, 1.0);
+        strength *= clamp(omw.far - depth, 0.0, 1.0);
+        strength *= clamp(( 1.5 - dot(base_color, vec3(0.7))), 0.0, 1.0);
+        strength *= clamp((       dot(base_color, vec3(2.0))), 0.0, 1.0);
+
+        //new_color.rgb = mix(gamma_color, new_color.rgb, strength);
+        //new_color.rgb = base_color + new_color.rgb * strength;
+        new_color.rgb = gamma_color + new_color.rgb * strength;
+
+        if (uDebug)
+            new_color = ref.rgb * 0.33;
+        omw_FragColor.rgb = new_color.rgb;
+        
+        //omw_FragColor.rgb = pow(omw_FragColor.rgb, vec3(g2));
+        
+        //omw_FragColor.rgb = get_geonormal(omw_TexCoord)*0.5+0.5;
+        //omw_FragColor.rgb = ref.rgb;
+        //omw_FragColor.rgb = vec3(omw_EstimateFogCoverageFromUV(omw_TexCoord));
+        
+        if (uDisable) omw_FragColor.rgb = base_color;
+        
+        //omw_FragColor.rgb = vec3(sqrt(depth)*0.007);
+        //omw_FragColor.rgb = vec3(ref.a*0.007);
+    }
+}
+
+technique {
+    passes = get_info, filter, filter2, final;
+    description = "Super ultra bad screen-space indirect lighting.";
+    author = "Wareya";
+    pass_normals = true;
+    version = "0.1";
+}
+
