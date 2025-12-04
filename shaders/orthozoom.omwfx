@@ -14,6 +14,11 @@ uniform_float uZoom {
     display_name = "Zoom";
     description = "...";
 }
+uniform_bool uStereographic {
+    default = false;
+    display_name = "Stereographic";
+    description = "otherwise Orthographic";
+}
 
 fragment crt() {
     omw_In vec2 omw_TexCoord;
@@ -22,6 +27,9 @@ fragment crt() {
 
     float fn(float x)
     {
+        x = min(x, 1.001);
+        if (uStereographic)
+            return (4.0-x*x*4.0)/4.0;
         return sqrt(max(0.00001, 1.0 - x*x));
     }
     void main()
@@ -32,7 +40,13 @@ fragment crt() {
         
         coord /= uZoom;
         float len = length(coord);
-        coord /= fn(len*uCurvature)/fn(uCurvature);
+        float cx = uCurvature;
+        if (uStereographic)
+        {
+            cx = pow(cx, 1.25);
+            cx *= 0.94;
+        }
+        coord /= fn(len*cx)/fn(cx);
         
         coord.x /= omw.resolution.x/omw.resolution.y;
 
