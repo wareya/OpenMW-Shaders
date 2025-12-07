@@ -1,0 +1,234 @@
+uniform_float uNumSamples {
+    default = 10.0;
+    min = 2.0;
+    max = 64.0;
+    step = 1.0;
+    display_name = "uNumSamples";
+}
+uniform_float uStrength {
+    default = 0.7;
+    min = 0.1;
+    max = 4.0;
+    step = 0.1;
+    display_name = "uStrength";
+}
+uniform_float uDetailRange {
+    default = 4.0;
+    min = 0.25;
+    max = 20.0;
+    step = 0.25;
+    display_name = "uDetailRange";
+}
+uniform_float uDetailFineness {
+    default = 10.0;
+    min = 0.1;
+    max = 20.0;
+    step = 1.0;
+    display_name = "uDetailFineness";
+}
+uniform_float uVecRange {
+    default = 4.0;
+    min = 0.25;
+    max = 20.0;
+    step = 0.25;
+    display_name = "uVecRange";
+}
+uniform_float uVecFineness {
+    default = 11.0;
+    min = 3.0;
+    max = 19.0;
+    step = 2.0;
+    display_name = "uVecFineness";
+}
+uniform_bool uDetailWeighting {
+    default = true;
+    description = "...";
+    display_name = "uDetailWeighting";
+}
+uniform_bool uVecPrioritizeFiner {
+    default = true;
+    description = "...";
+    display_name = "uVecPrioritizeFiner";
+}
+uniform_float uDetailMinimumConfidence {
+    default = 0.25;
+    min = 0.0;
+    max = 1.0;
+    step = 0.05;
+    display_name = "uDetailMinimumConfidence";
+}
+uniform_bool uDetailConfidenceWeighting {
+    default = true;
+    description = "...";
+    display_name = "uDetailConfidenceWeighting";
+}
+uniform_bool uDebug {
+    default = false;
+    description = "...";
+    display_name = "uDebug";
+}
+uniform_bool uDisable {
+    default = false;
+    description = "...";
+    display_name = "uDisable";
+}
+
+render_target RT_Mipmapped {
+    internal_format = rgba16f;
+    source_type = float;
+    source_format = rgb;
+    mag_filter = linear;
+    min_filter = linear_mipmap_linear;
+    width = 1024;
+    height = 1024;
+    mipmaps = true;
+    wrap_s = clamp_to_edge;
+    wrap_t = clamp_to_edge;
+}
+
+render_target RT_Old {
+    internal_format = rgba16f;
+    source_type = float;
+    source_format = rgb;
+    mag_filter = linear;
+    min_filter = linear_mipmap_linear;
+    width = 1024;
+    height = 1024;
+    mipmaps = true;
+    wrap_s = clamp_to_edge;
+    wrap_t = clamp_to_edge;
+}
+render_target RT_Next {
+    internal_format = rgba16f;
+    width_ratio = 0.05;
+    height_ratio = 0.05;
+}
+
+
+fragment mm(target=RT_Mipmapped) {
+    omw_In vec2 omw_TexCoord;
+    void main()
+    {
+        omw_FragColor = omw_GetLastShader(omw_TexCoord);
+    }
+}
+fragment test2(rt1=RT_Old, rt2=RT_Mipmapped, target=RT_Next) {
+    omw_In vec2 omw_TexCoord;
+    
+    float patchCorrelation(sampler2D nextFrame, sampler2D pastFrame, vec2 nextCoord, vec2 pastCoord)
+    {
+        float minmax_n = uDetailRange/100.0;
+        float stepper = (minmax_n*2.0)/round(uDetailFineness);
+        
+        float costTotal = 0.0;
+        float sampleCount = 0.0;
+        for (float ty = -minmax_n; ty < minmax_n+0.001; ty += stepper) {
+            for (float tx = -minmax_n; tx < minmax_n+0.001; tx += stepper) {
+                vec3 nextColor = texture(nextFrame, nextCoord + vec2(tx, ty)).rgb;
+                vec3 pastColor = texture(pastFrame, pastCoord + vec2(tx, ty)).rgb;
+                vec3 diff = nextColor - pastColor;
+                
+                // For some messed up reason, mean average error instead of mean square error handles this better.
+                float cost = length(diff)*(1.0/sqrt(3.0))*0.999;
+                //float cost = dot(diff, diff)*(1.0/3.0)*0.999;
+                
+                if (uDetailWeighting)
+                    cost *= 1.0 - max(abs(tx), abs(ty))/minmax_n;
+                costTotal += cost;
+                sampleCount += 1.0;
+            }
+        }
+        
+        return costTotal / sampleCount;
+    }
+    vec2 motionSearch(sampler2D nextFrame, sampler2D pastFrame)
+    {
+        if (uDisable) return vec2(0.0);
+        
+        float bestCost = 10000000.0; 
+        vec2 bestOffset = vec2(0.0, 0.0); 
+
+        float radius = uVecRange/100.0;
+        int steps = int(uVecFineness/2.0)*2+1; // needs to be an odd number greater than 1
+        
+        for (float dy = 0; dy < steps; dy += 1)
+        {
+            float fdy = float(dy)-float(steps-1)/2.0; // steps=5: 0~4 -> -2~2
+            fdy /= float(steps-1)/2.0; // steps=5: -> -2~2 -> -1~1
+            if (uVecPrioritizeFiner)
+                fdy *= abs(fdy);
+            for (float dx = 0; dx < steps; dx += 1)
+            {
+                float fdx = float(dx)-float(steps-1)/2.0;
+                fdx /= float(steps-1)/2.0;
+                if (uVecPrioritizeFiner)
+                    fdx *= abs(fdx);
+                vec2 candidateUV = omw_TexCoord + vec2(fdx, fdy)*radius;
+                float currentCost = patchCorrelation(RT_Mipmapped, RT_Old, omw_TexCoord, candidateUV);
+                //float confidence = 1.0-currentCost;
+                float confidence = 1.0-sqrt(currentCost);
+                //float confidence = 1.0-sqrt(sqrt(currentCost));
+                
+                confidence *= confidence;
+                confidence *= confidence;
+                
+                if (confidence >= uDetailMinimumConfidence && currentCost < bestCost)
+                {
+                    bestCost = currentCost;
+                    bestOffset = vec2(fdx, fdy)*radius; 
+                    if (uDetailConfidenceWeighting)
+                        bestOffset *= sqrt((confidence-uDetailMinimumConfidence)/(1.0-uDetailMinimumConfidence+0.001));
+                }
+            }
+        }
+        
+        return bestOffset;
+    }
+
+    void main()
+    {
+        vec2 d = motionSearch(omw_SamplerLastShader, RT_Old);
+        omw_FragColor.rgb = vec3(d.x, d.y, 0.0);
+    }
+}
+
+fragment test(target=RT_Old) {
+    omw_In vec2 omw_TexCoord;
+    void main()
+    {
+        omw_FragColor.rgb = omw_GetLastShader(omw_TexCoord).rgb;
+    }
+}
+
+
+fragment main(rt1=RT_Next) {
+    omw_In vec2 omw_TexCoord;
+    void main()
+    {
+        //if (omw_TexCoord.x < 0.5)
+        //    omw_FragColor.rgb = omw_GetLastShader(omw_TexCoord).rgb;
+        vec2 v = texture(RT_Next, omw_TexCoord).rg;
+        vec3 c = vec3(0.0);
+        for (float i = 0; i < uNumSamples; i += 1.0)
+        {
+            float _i = i*(1.0/uNumSamples); // normalizer
+            _i -= 0.5; // center-er
+            _i *= uStrength; // strength
+            c += omw_GetLastShader(omw_TexCoord + _i*v).rgb;
+        }
+        c *= (1.0/uNumSamples);
+        omw_FragColor.rgb = c;
+        if (uDebug && omw_TexCoord.x > 0.5)
+            omw_FragColor.rgb = texture(RT_Next, omw_TexCoord).rgb*20.0*0.5+0.5;
+        if (uDisable)
+            omw_FragColor.rgb = omw_GetLastShader(omw_TexCoord).rgb;
+    }
+}
+
+technique {
+    passes = mm, test2, test, main;
+    description = "This is not a CRT shader.";
+    author = "Wareya";
+    version = "0.1";
+}
+
