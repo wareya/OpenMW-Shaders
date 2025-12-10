@@ -26,7 +26,7 @@ To use the water shader, find and open `water.frag` and, below the line that sta
 
 Add this new line:
 
-`gl_FragData[0].w = 0.0;`
+`gl_FragData[0] = vec4(0.0);`
 
 Then, in the ingame video options for water, set the settings like this:
 
@@ -51,3 +51,4 @@ Then, enable post-processing, open the post-processing settings, and add the wat
     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
     See the License for the specific language governing permissions and
     limitations under the License.
+
